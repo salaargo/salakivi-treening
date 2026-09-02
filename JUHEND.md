@@ -1,5 +1,7 @@
 # Salakivi Treening — kasutus- ja paigaldusjuhend
 
+> **Staatus:** kood on GitHubis (`salaargo/salakivi-treening`). Supabase + Render vajavad sinu kontole sisselogimist — vt **[PAIGALDUS.md](./PAIGALDUS.md)** (5–10 min).
+
 Treeningäpp telefonis ja arvutis. Iga kasutaja logib sisse oma kontoga — logid ja statistika salvestuvad **Supabase** pilve. Veebileht hostitakse **Render**-is.
 
 ---
