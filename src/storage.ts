@@ -347,6 +347,11 @@ function normalizeLogs(
   return out
 }
 
+export function parseAppState(raw: unknown): AppState {
+  const normalized = normalizeState(raw)
+  return normalized ?? createDefaultState()
+}
+
 export function loadState(): AppState {
   try {
     let raw = localStorage.getItem(STORAGE_KEY)
@@ -357,9 +362,7 @@ export function loadState(): AppState {
       }
     }
     if (!raw) return createDefaultState()
-    const normalized = normalizeState(JSON.parse(raw))
-    if (!normalized) return createDefaultState()
-    return normalized
+    return parseAppState(JSON.parse(raw))
   } catch {
     return createDefaultState()
   }

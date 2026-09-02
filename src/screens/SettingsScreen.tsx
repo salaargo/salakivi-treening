@@ -28,13 +28,15 @@ interface SettingsScreenProps {
   state: AppState
   onChange: (next: AppState) => void
   onBack: () => void
+  userEmail?: string
+  onLogout?: () => void
 }
 
 function newId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-export function SettingsScreen({ state, onChange, onBack }: SettingsScreenProps) {
+export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }: SettingsScreenProps) {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null)
@@ -793,6 +795,18 @@ export function SettingsScreen({ state, onChange, onBack }: SettingsScreenProps)
         </button>
         <h2>Seaded</h2>
       </header>
+
+      {userEmail && (
+        <section className="settings-block account-block">
+          <p className="muted small">Sisse logitud</p>
+          <p className="plan-name">{userEmail}</p>
+          {onLogout && (
+            <button type="button" className="btn btn-ghost danger full" onClick={onLogout}>
+              Logi välja
+            </button>
+          )}
+        </section>
+      )}
 
       <section className="settings-block">
         <div className="section-head">

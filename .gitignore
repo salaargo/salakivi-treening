@@ -2,5 +2,7 @@
 dist/
 .DS_Store
 *.local
+.env
+.env.local
 .tsbuildinfo
 tsconfig.tsbuildinfo

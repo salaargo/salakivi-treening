@@ -359,6 +359,74 @@ select:focus {
   padding: 2rem 0;
 }
 
+.auth-screen {
+  justify-content: center;
+  gap: 1.25rem;
+}
+
+.auth-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.auth-tab {
+  border-radius: 12px;
+  padding: 0.55rem 0.75rem;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.auth-tab.is-on {
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-2));
+  color: var(--text);
+}
+
+.auth-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.auth-message {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.cloud-banner {
+  margin: 0;
+  padding: 0.55rem 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+}
+
+.cloud-banner.error {
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface));
+  color: #ffd5d0;
+}
+
+.home-user {
+  margin-top: 0.35rem;
+}
+
+.account-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .sauna-word {
   margin: 0;
   font-family: var(--display);

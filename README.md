@@ -1,12 +1,23 @@
 # Salakivi Treening
 
-Mobiilile orienteeritud treeningprogrammi prototüüp.
+Mobiilile orienteeritud treeningprogramm (veeb). Logid ja statistika pilves (**Supabase**), host **Render**.
 
-## Käivitamine
+Täpne paigaldus: **[JUHEND.md](./JUHEND.md)**
+
+## Kiire start (arendus)
 
 ```bash
 npm install
+cp .env.example .env   # täida Supabase võtmed
 npm run dev
 ```
 
-Ava brauseris (soovitavalt telefoni vaates / DevTools mobile mode).
+Ilma `.env` failita töötab ainult kohalik `localStorage` (ilma sisselogimiseta).
+
+## Build
+
+```bash
+npm run build
+```
+
+Väljund: `dist/` (Render deploy’ib selle automaatselt).
