@@ -404,6 +404,30 @@ select:focus {
   font-size: 0.9rem;
 }
 
+.auth-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.92rem;
+  padding: 0.35rem 0;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.btn-link:hover {
+  color: var(--text);
+}
+
 .cloud-banner {
   margin: 0;
   padding: 0.55rem 1rem;

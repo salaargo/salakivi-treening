@@ -27,6 +27,7 @@ export default function App() {
   const [weekOffset, setWeekOffset] = useState(0)
   const [bootError, setBootError] = useState<string | null>(null)
   const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [passwordRecovery, setPasswordRecovery] = useState(false)
   const skipCloudSave = useRef(true)
 
   const userId = session?.user.id ?? null
@@ -63,9 +64,13 @@ export default function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecovery(true)
+      }
       setSession(nextSession)
       if (!nextSession) {
+        setPasswordRecovery(false)
         setState(loadState())
         setScreen({ name: 'home' })
         skipCloudSave.current = true
@@ -141,6 +146,18 @@ export default function App() {
     return (
       <div className="app-shell">
         <p className="muted pad">Laen…</p>
+      </div>
+    )
+  }
+
+  if (cloud && passwordRecovery) {
+    return (
+      <div className="app-shell">
+        <AuthScreen
+          recoveryMode
+          onSignedIn={() => void handleSignedIn()}
+          onPasswordUpdated={() => setPasswordRecovery(false)}
+        />
       </div>
     )
   }
