@@ -93,11 +93,7 @@ export function AuthScreen({ onSignedIn, recoveryMode = false, onPasswordUpdated
   }
 
   const title =
-    mode === 'forgot'
-      ? 'Taasta parool'
-      : mode === 'new-password'
-        ? 'Uus parool'
-        : 'Logi sisse, et sinu logid ja kava oleksid pilves. Uuel kontol on Argo valmis algmall — saad seda Seadetes ise muuta.'
+    mode === 'forgot' ? 'Taasta parool' : mode === 'new-password' ? 'Uus parool' : null
 
   const submitLabel =
     mode === 'forgot'
@@ -113,7 +109,7 @@ export function AuthScreen({ onSignedIn, recoveryMode = false, onPasswordUpdated
       <header className="home-hero">
         <p className="eyebrow">Salakivi</p>
         <h1 className="brand">Treening</h1>
-        <p className="muted">{title}</p>
+        {title && <p className="muted">{title}</p>}
       </header>
 
       <form className="auth-card" onSubmit={handleSubmit}>
