@@ -7,6 +7,8 @@ import {
   getSpotlightProgress,
   getSpotlightGroup,
   startGroupPhase,
+  stopTodayWorkout,
+  todayKey,
 } from './storage'
 import { isCloudEnabled, loadCloudState, saveCloudState } from './cloud/sync'
 import { getSupabase } from './lib/supabase'
@@ -17,6 +19,7 @@ import { TrainPhaseScreen } from './screens/TrainPhaseScreen'
 import { WeekScreen } from './screens/WeekScreen'
 import { WorkoutScreen } from './screens/WorkoutScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { StopWorkoutControl } from './components/StopWorkoutControl'
 
 export default function App() {
   const cloud = isCloudEnabled()
@@ -29,6 +32,10 @@ export default function App() {
   const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const skipCloudSave = useRef(true)
+  const liveWorkoutLogRef = useRef<(() => DayLog | null) | null>(null)
+  const registerLiveWorkoutLog = useCallback((getter: (() => DayLog | null) | null) => {
+    liveWorkoutLogRef.current = getter
+  }, [])
 
   const userId = session?.user.id ?? null
   const userEmail = session?.user.email ?? ''
@@ -142,6 +149,21 @@ export default function App() {
     goToWeek()
   }
 
+  function handleConfirmStopToday() {
+    const live =
+      screen.name === 'workout' && screen.dateKey === todayKey()
+        ? liveWorkoutLogRef.current?.() ?? null
+        : null
+    const result = stopTodayWorkout(state, live)
+    if (result.error || !result.log) {
+      window.alert(result.error ?? 'Tänast treeningut ei saanud lõpetada.')
+      return
+    }
+    setState(result.state)
+    skipCloudSave.current = false
+    setScreen({ name: 'home' })
+  }
+
   if (!authReady) {
     return (
       <div className="app-shell">
@@ -173,6 +195,8 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <StopWorkoutControl onConfirmStop={handleConfirmStopToday} />
+
       {cloud && cloudStatus === 'error' && (
         <p className="cloud-banner error">Pilve salvestamine ebaõnnestus. Proovi uuesti.</p>
       )}
@@ -234,6 +258,7 @@ export default function App() {
           onFinish={() => setScreen({ name: 'home' })}
           onUpdateLog={updateLog}
           onChangeState={setState}
+          onRegisterLiveLog={registerLiveWorkoutLog}
         />
       )}
 

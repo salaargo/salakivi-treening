@@ -1,5 +1,7 @@
 import type {
   AppState,
+  DayLog,
+  ExerciseLog,
   ExerciseMachine,
   ExerciseTemplate,
   PhaseId,
@@ -25,8 +27,10 @@ import {
   getFirstCycleWeekOfPhase,
   getPhaseForCycleWeek,
   getWeekInPhase,
+  suggestedWeight,
 } from './phases'
 import type { Phase } from './types'
+import { exerciseRounds, getPrimaryMachine } from './exercises'
 
 const STORAGE_KEY = 'salakivi-treening-v8'
 const LEGACY_KEYS = [
@@ -342,6 +346,7 @@ function normalizeLogs(
       finishedAt: typeof log.finishedAt === 'string' ? log.finishedAt : undefined,
       workMs: typeof log.workMs === 'number' && log.workMs >= 0 ? log.workMs : undefined,
       restMs: typeof log.restMs === 'number' && log.restMs >= 0 ? log.restMs : undefined,
+      stoppedEarly: Boolean(log.stoppedEarly),
     }
   }
   return out
@@ -513,6 +518,84 @@ export function addMachineToExercise(
         ex.id === exerciseId ? { ...ex, machines: [...ex.machines, machine] } : ex,
       ),
     })),
+  }
+}
+
+function buildExerciseLogSkeleton(
+  ex: ExerciseTemplate,
+  phase: Phase,
+): ExerciseLog {
+  const machine = getPrimaryMachine(ex)
+  return {
+    exerciseId: ex.id,
+    sets: Array.from({ length: exerciseRounds(ex) }, () => ({
+      machineId: machine.id,
+      weightKg: suggestedWeight(machine.baseWeightKg, phase.weightMultiplier),
+      reps: phase.setsMin,
+      completed: false,
+    })),
+  }
+}
+
+export function isExerciseLogDone(log: DayLog, exerciseId: string): boolean {
+  const sets = log.exercises.find((e) => e.exerciseId === exerciseId)?.sets
+  return Boolean(sets?.length && sets.every((s) => s.completed))
+}
+
+export function dayLogHasIncomplete(log: DayLog): boolean {
+  return log.exercises.some((ex) => ex.sets.some((s) => !s.completed))
+}
+
+/** Tagasta/loo päeva logi (tegemata seeriad completed: false). */
+export function ensureDayLog(state: AppState, dateKey: string): DayLog | null {
+  const group = getGroupForDate(state, dateKey)
+  if (!group) return null
+  const exercises = getExercisesForGroup(state, group.id)
+  if (!exercises.length) return null
+  const phase = getPhaseProgressForGroup(state, group.id, dateKey).phase
+  const existing = state.logs[dateKey]
+  if (existing && existing.groupId === group.id && existing.phaseId === phase.id) {
+    return existing
+  }
+  return {
+    dateKey,
+    groupId: group.id,
+    phaseId: phase.id,
+    exercises: exercises.map((ex) => buildExerciseLogSkeleton(ex, phase)),
+  }
+}
+
+/**
+ * Lõpeta tänane treening varakult.
+ * Tegemata seeriad jäävad completed: false (punane logis).
+ */
+export function stopTodayWorkout(
+  state: AppState,
+  liveLog?: DayLog | null,
+): { state: AppState; log: DayLog | null; error?: string } {
+  const dateKey = todayKey()
+  const base = liveLog?.dateKey === dateKey ? liveLog : ensureDayLog(state, dateKey)
+  if (!base) {
+    return { state, log: null, error: 'Täna pole treeningpäeva või kava puudub.' }
+  }
+
+  const now = new Date().toISOString()
+  const incomplete = dayLogHasIncomplete(base)
+  const log: DayLog = {
+    ...base,
+    startedAt: base.startedAt ?? now,
+    finishedAt: now,
+    stoppedEarly: incomplete || Boolean(base.stoppedEarly),
+    workMs: base.workMs ?? 0,
+    restMs: base.restMs ?? 0,
+  }
+
+  return {
+    state: {
+      ...state,
+      logs: { ...state.logs, [dateKey]: log },
+    },
+    log,
   }
 }
 

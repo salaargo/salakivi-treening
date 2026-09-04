@@ -18,6 +18,7 @@ interface WorkoutScreenProps {
   onFinish: () => void
   onUpdateLog: (log: DayLog) => void
   onChangeState: (next: AppState) => void
+  onRegisterLiveLog?: (getter: (() => DayLog | null) | null) => void
 }
 
 interface AddPinkForm {
@@ -126,6 +127,7 @@ export function WorkoutScreen({
   onFinish,
   onUpdateLog,
   onChangeState,
+  onRegisterLiveLog,
 }: WorkoutScreenProps) {
   const date = parseDateKey(dateKey)
   const weekday = date.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6
@@ -169,6 +171,32 @@ export function WorkoutScreen({
     },
     [onUpdateLog],
   )
+
+  useEffect(() => {
+    if (!onRegisterLiveLog) return
+    onRegisterLiveLog(() => {
+      if (!log) return null
+      const now = Date.now()
+      let workMs = workMsAcc.current
+      let restMs = restMsAcc.current
+      if (setStartedAt.current !== null) {
+        workMs += now - setStartedAt.current
+      }
+      const started =
+        sessionStartedAt.current !== null
+          ? new Date(sessionStartedAt.current).toISOString()
+          : log.startedAt ?? new Date(now).toISOString()
+      return {
+        ...log,
+        startedAt: started,
+        finishedAt: new Date(now).toISOString(),
+        workMs,
+        restMs,
+        stoppedEarly: true,
+      }
+    })
+    return () => onRegisterLiveLog(null)
+  }, [log, onRegisterLiveLog])
 
   useEffect(() => {
     const rebuilt = buildInitialLog(state, dateKey)
@@ -511,6 +539,7 @@ export function WorkoutScreen({
     const totalMs = workoutTotalMs(dayLog)
     const workMs = dayLog.workMs ?? 0
     const restMs = dayLog.restMs ?? 0
+    const missed = liveExercises.filter((ex) => !isExerciseDone(dayLog, ex.id))
     return (
       <div className="screen sauna-screen">
         <header className="topbar">
@@ -520,8 +549,32 @@ export function WorkoutScreen({
           <h2>{group.name}</h2>
         </header>
         <div className="sauna-hero">
-          <p className="sauna-word">Sauna!</p>
-          <p className="muted">Selle päeva treeningud on läbi.</p>
+          <p className="sauna-word">{missed.length ? 'Peatatud' : 'Sauna!'}</p>
+          <p className="muted">
+            {missed.length
+              ? 'Tänane treening on lõpetatud. Tegemata harjutused on logis punased.'
+              : 'Selle päeva treeningud on läbi.'}
+          </p>
+
+          {missed.length > 0 && (
+            <ul className="missed-list">
+              {missed.map((ex) => {
+                const doneSets = completedCount(dayLog, ex.id)
+                const total = findExerciseLog(dayLog, ex.id)?.sets.length ?? exerciseRounds(ex)
+                return (
+                  <li key={ex.id} className="missed-row">
+                    <span className="missed-mark">✕</span>
+                    <div>
+                      <p className="plan-name">{ex.name}</p>
+                      <p className="muted small">
+                        Tegemata · {doneSets}/{total} seeriat
+                      </p>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
 
           <div className="sauna-stats">
             <div className="sauna-stat-row">
@@ -589,19 +642,26 @@ export function WorkoutScreen({
             const doneSets = completedCount(dayLog, ex.id)
             const total = logged?.sets.length ?? exerciseRounds(ex)
             const isOn = selected.includes(index)
+            const finishedEarly = Boolean(dayLog.finishedAt) && !done
             return (
               <li key={ex.id}>
                 <button
                   type="button"
-                  className={`pick-row ${isOn ? 'is-selected' : ''} ${done ? 'is-done' : ''}`}
+                  className={`pick-row ${isOn ? 'is-selected' : ''} ${done ? 'is-done' : ''} ${finishedEarly ? 'is-missed' : ''}`}
                   onClick={() => toggleSelect(index)}
-                  disabled={done}
+                  disabled={done || Boolean(dayLog.finishedAt)}
                 >
-                  <span className="pick-check">{done ? '✓' : isOn ? '●' : '○'}</span>
+                  <span className={`pick-check ${finishedEarly ? 'is-missed' : ''}`}>
+                    {done ? '✓' : finishedEarly ? '✕' : isOn ? '●' : '○'}
+                  </span>
                   <div>
                     <p className="plan-name">{ex.name}</p>
                     <p className="muted small">
-                      {done ? 'Tehtud' : `${doneSets}/${total} kordust`}
+                      {done
+                        ? 'Tehtud'
+                        : finishedEarly
+                          ? `Tegemata · ${doneSets}/${total} seeriat`
+                          : `${doneSets}/${total} kordust`}
                       {isOn && selected.length === 2
                         ? ` · segamini #${selected.indexOf(index) + 1}`
                         : ''}

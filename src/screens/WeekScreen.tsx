@@ -12,6 +12,7 @@ import {
   getPhaseForGroup,
   getWeekTemplateForDate,
   todayKey,
+  dayLogHasIncomplete,
 } from '../storage'
 
 interface WeekScreenProps {
@@ -64,13 +65,14 @@ export function WeekScreen({
           const phase = group ? getPhaseForGroup(state, group.id, key) : null
           const isToday = key === today
           const log = state.logs[key]
-          const done = Boolean(log?.finishedAt)
+          const partial = Boolean(log?.finishedAt && dayLogHasIncomplete(log))
+          const done = Boolean(log?.finishedAt && !dayLogHasIncomplete(log))
 
           return (
             <li key={key}>
               <button
                 type="button"
-                className={`day-card ${isToday ? 'is-today' : ''} ${group ? '' : 'is-rest'} ${done ? 'is-done' : ''}`}
+                className={`day-card ${isToday ? 'is-today' : ''} ${group ? '' : 'is-rest'} ${done ? 'is-done' : ''} ${partial ? 'is-partial' : ''}`}
                 onClick={() => group && onSelectDay(key)}
                 disabled={!group}
               >
@@ -89,6 +91,7 @@ export function WeekScreen({
                       </span>
                       <p className="day-plan">{group.name}</p>
                       {done && <p className="done-tag">Tehtud</p>}
+                      {partial && <p className="missed-tag">Tegemata jäi</p>}
                     </>
                   ) : (
                     <p className="muted">Puhkepäev</p>
