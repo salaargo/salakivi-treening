@@ -1,6 +1,6 @@
 import type { AppState } from '../types'
-import { createDefaultState } from '../dates'
-import { loadState, parseAppState, saveState } from '../storage'
+import { createStarterState } from '../seed/starterState'
+import { parseAppState, saveState } from '../storage'
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 
 export { isCloudEnabled }
@@ -11,7 +11,10 @@ interface CloudRow {
   updated_at: string
 }
 
-/** Lae kasutaja andmed Supabasest. Kui pilves pole, proovi localStorage migratsiooni. */
+/**
+ * Lae kasutaja andmed Supabasest.
+ * Kui pilves pole rida (uus kasutaja) → Argo/Salakivi algmall isikliku koopiana.
+ */
 export async function loadCloudState(userId: string): Promise<AppState> {
   const supabase = getSupabase()
   const { data, error } = await supabase
@@ -28,12 +31,8 @@ export async function loadCloudState(userId: string): Promise<AppState> {
     return parsed
   }
 
-  const local = loadState()
-  const hasLocalData =
-    Object.keys(local.logs).length > 0 ||
-    local.plans.some((p) => p.exercises.length > 0)
-
-  const initial = hasLocalData ? local : createDefaultState()
+  // Uus konto: alati värske algmall (mitte teise inimese localStorage).
+  const initial = createStarterState()
   await saveCloudState(userId, initial)
   return initial
 }

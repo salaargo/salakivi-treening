@@ -808,6 +808,15 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
         </section>
       )}
 
+      <section className="settings-block starter-note">
+        <h3>Sinu treeningkava</h3>
+        <p className="muted small">
+          See on sinu isiklik kava — saad ise gruppe, kavasid ja nädalaid muuta või juurde luua.
+          Adminit ega treenerit pole vaja. Esmakordsel sisselogimisel said Algmalliks Salakivi (Argo)
+          valmis kava; sinu muudatused salvestuvad ainult sinu kontole.
+        </p>
+      </section>
+
       <section className="settings-block">
         <div className="section-head">
           <h3>Nädala mallid</h3>

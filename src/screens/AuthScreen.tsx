@@ -97,7 +97,7 @@ export function AuthScreen({ onSignedIn, recoveryMode = false, onPasswordUpdated
       ? 'Taasta parool'
       : mode === 'new-password'
         ? 'Uus parool'
-        : 'Logi sisse, et sinu logid ja statistika oleksid pilves.'
+        : 'Logi sisse, et sinu logid ja kava oleksid pilves. Uuel kontol on Argo valmis algmall — saad seda Seadetes ise muuta.'
 
   const submitLabel =
     mode === 'forgot'
