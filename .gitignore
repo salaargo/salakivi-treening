@@ -6,3 +6,5 @@ dist/
 .env.local
 .tsbuildinfo
 tsconfig.tsbuildinfo
+
+supabase/.temp/
