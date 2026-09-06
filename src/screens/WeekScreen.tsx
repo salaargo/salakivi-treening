@@ -44,7 +44,9 @@ export function WeekScreen({
         <div className="topbar-title">
           <h2>Nädal</h2>
           <p className="muted small">
-            {template.name} · {formatDayMonth(days[0])} – {formatDayMonth(days[6])}
+            {state.useRotatingWeeks === false
+              ? `${template.name} · sama kava igal nädalal · ${formatDayMonth(days[0])} – ${formatDayMonth(days[6])}`
+              : `${template.name} · ${formatDayMonth(days[0])} – ${formatDayMonth(days[6])}`}
           </p>
         </div>
         <div className="week-nav">

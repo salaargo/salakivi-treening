@@ -78,8 +78,13 @@ export interface DayLog {
 export interface AppState {
   phases: Phase[]
   plans: WorkoutPlan[]
-  /** Koostatud nädalad (vähemalt 2), kalendris vaheldumisi */
+  /** Koostatud nädalad; kui useRotatingWeeks, kalendris vaheldumisi */
   weeks: WeekTemplate[]
+  /**
+   * true = Nädal 1 → 2 → … → 1 vaheldumisi.
+   * false = iga kalendrinädal kasutab ainult esimest malli (sama kava igal nädalal).
+   */
+  useRotatingWeeks: boolean
   logs: Record<string, DayLog>
   /** Faasiringi algus (esmaspäeva kuupäev) */
   cycleStartDate: string

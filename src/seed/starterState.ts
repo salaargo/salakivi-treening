@@ -75,9 +75,11 @@ export function createStarterState(): AppState {
     phases: DEFAULT_PHASES.map((p) => ({ ...p })),
     plans: [planPush, planPull, planLegs],
     weeks: [
-      { id: id('week'), name: 'Nädal 1', days: week1Days },
+      { id: id('week'), name: 'Treeningnädal', days: week1Days },
+      // Teine mall jääb varuks, kui keegi vaheldumise sisse lülitab
       { id: id('week'), name: 'Nädal 2', days: week2Days },
     ],
+    useRotatingWeeks: false,
     logs: {},
     cycleStartDate,
   }

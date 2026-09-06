@@ -1049,6 +1049,28 @@ select:focus {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.55rem 0;
+  cursor: pointer;
+}
+
+.toggle-row .block {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.toggle-row input[type='checkbox'] {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
 .settings-block h3 {
   margin: 0;
   font-size: 1rem;

@@ -166,17 +166,32 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
 
   function addWeek() {
     const week = createEmptyWeekTemplate(`Nädal ${state.weeks.length + 1}`)
-    onChange({ ...state, weeks: [...state.weeks, week] })
+    onChange({ ...state, weeks: [...state.weeks, week], useRotatingWeeks: true })
     setEditingWeekId(week.id)
   }
 
   function removeWeek(weekId: string) {
-    if (state.weeks.length <= 2) return
+    const minWeeks = state.useRotatingWeeks ? 2 : 1
+    if (state.weeks.length <= minWeeks) return
+    const weeks = state.weeks.filter((w) => w.id !== weekId)
     onChange({
       ...state,
-      weeks: state.weeks.filter((w) => w.id !== weekId),
+      weeks,
+      useRotatingWeeks: weeks.length > 1 ? state.useRotatingWeeks : false,
     })
     if (editingWeekId === weekId) setEditingWeekId(null)
+  }
+
+  function setUseRotatingWeeks(on: boolean) {
+    if (on) {
+      let weeks = state.weeks
+      if (weeks.length < 2) {
+        weeks = [...weeks, createEmptyWeekTemplate(`Nädal ${weeks.length + 1}`)]
+      }
+      onChange({ ...state, weeks, useRotatingWeeks: true })
+      return
+    }
+    onChange({ ...state, useRotatingWeeks: false })
   }
 
   function addPlan() {
@@ -419,7 +434,7 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
           })}
         </ul>
 
-        {state.weeks.length > 2 && (
+        {(state.useRotatingWeeks ? state.weeks.length > 2 : state.weeks.length > 1) && (
           <button
             type="button"
             className="btn btn-ghost danger full"
@@ -703,17 +718,35 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
 
       <section className="settings-block">
         <div className="section-head">
-          <h3>Nädala mallid</h3>
-          <button type="button" className="btn btn-secondary" onClick={addWeek}>
-            Lisa
-          </button>
+          <h3>Nädala mall</h3>
+          {state.useRotatingWeeks && (
+            <button type="button" className="btn btn-secondary" onClick={addWeek}>
+              Lisa
+            </button>
+          )}
         </div>
+
+        <label className="toggle-row">
+          <span>
+            <strong>Vahelduvad nädalamallid</strong>
+            <span className="muted small block">
+              Väljas = iga nädal sama kava (ainult faas muutub). Sees = Nädal 1 → 2 → … kordamööda.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={state.useRotatingWeeks}
+            onChange={(e) => setUseRotatingWeeks(e.target.checked)}
+          />
+        </label>
+
         <p className="muted small">
-          Koosta vähemalt 2 nädalat. Kalendris käivad need kordamööda (Nädal 1 → 2 → … → 1).
-          Päevale vali treeningkava.
+          {state.useRotatingWeeks
+            ? 'Kalendris käivad mallid kordamööda. Päevale vali treeningkava.'
+            : 'Kasutusel on üks nädala kava igal kalendrinädalal. Päevale vali treeningkava.'}
         </p>
         <ul className="plan-list">
-          {state.weeks.map((w, index) => {
+          {(state.useRotatingWeeks ? state.weeks : state.weeks.slice(0, 1)).map((w, index) => {
             const trainingDays = WEEK_ORDER.filter((d) => w.days[d]).length
             return (
               <li key={w.id}>
@@ -721,7 +754,9 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
                   <div>
                     <p className="plan-name">{w.name}</p>
                     <p className="muted small">
-                      Mall {index + 1}/{state.weeks.length} · {trainingDays} treeningpäeva
+                      {state.useRotatingWeeks
+                        ? `Mall ${index + 1}/${state.weeks.length} · ${trainingDays} treeningpäeva`
+                        : `${trainingDays} treeningpäeva · kehtib igal nädalal`}
                     </p>
                   </div>
                   <span className="chevron">›</span>

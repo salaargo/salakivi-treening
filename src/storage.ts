@@ -167,8 +167,8 @@ function normalizeWeeks(
       })
       .filter((w): w is WeekTemplate => w !== null)
 
-    while (weeks.length < 2) {
-      weeks.push(createEmptyWeekTemplate(`Nädal ${weeks.length + 1}`))
+    if (!weeks.length) {
+      weeks.push(createEmptyWeekTemplate('Nädal 1'))
     }
     return weeks
   }
@@ -357,7 +357,10 @@ function normalizeState(raw: unknown): AppState | null {
   const weeks = normalizeWeeks(data, plans, groupToPlan)
   const logs = normalizeLogs(data.logs, plans, groupToPlan)
 
-  return { phases, plans, weeks, logs, cycleStartDate }
+  const useRotatingWeeks =
+    typeof data.useRotatingWeeks === 'boolean' ? data.useRotatingWeeks : weeks.length > 1
+
+  return { phases, plans, weeks, logs, cycleStartDate, useRotatingWeeks }
 }
 
 export function parseAppState(raw: unknown): AppState {
@@ -386,6 +389,7 @@ export function saveState(state: AppState): void {
 }
 
 export function getWeekTemplateIndex(state: AppState, dateKey: string): number {
+  if (!state.useRotatingWeeks) return 0
   const anchor = state.cycleStartDate || defaultCycleStart()
   const startMonday = startOfWeekMonday(parseDateKey(anchor))
   const dateMonday = startOfWeekMonday(parseDateKey(dateKey))
