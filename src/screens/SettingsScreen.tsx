@@ -447,17 +447,23 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
           <h2>Muuda kava</h2>
         </header>
 
-        <label className="field block">
-          <span>Nimi</span>
-          <input
-            type="text"
-            value={editing.name}
-            onChange={(e) => updatePlan(editing.id, { name: e.target.value })}
-          />
-        </label>
-        <p className="muted small pad">
-          Praegu faas: <strong>{phaseProgress.phase.name}</strong>
-        </p>
+        <section className="settings-block">
+          <div className="field block">
+            <label htmlFor="plan-name">Treeningkava nimi</label>
+            <input
+              id="plan-name"
+              type="text"
+              autoComplete="off"
+              placeholder="nt Tõuke, Esmaspäev…"
+              value={editing.name}
+              onChange={(e) => updatePlan(editing.id, { name: e.target.value })}
+            />
+          </div>
+          <p className="muted small">
+            See nimi nähtub nädalavaates ja treeningus. Praegu faas:{' '}
+            <strong>{phaseProgress.phase.name}</strong>
+          </p>
+        </section>
 
         <div className="exercise-stack">
           {editing.exercises.map((ex, exIndex) => {
@@ -733,13 +739,16 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
             Lisa
           </button>
         </div>
+        <p className="muted small">
+          Ava kava, et muuta nime, harjutusi ja pinke. Nimi on see, mis nähtub kalendris (nt Tõuke).
+        </p>
         <ul className="plan-list">
           {state.plans.map((p) => (
             <li key={p.id}>
               <button type="button" className="plan-row" onClick={() => setEditingPlanId(p.id)}>
                 <div>
                   <p className="plan-name">{p.name}</p>
-                  <p className="muted small">{p.exercises.length} harjutust</p>
+                  <p className="muted small">{p.exercises.length} harjutust · muuda nime ›</p>
                 </div>
                 <span className="phase-pill" data-phase={phaseProgress.phase.id}>
                   {phaseProgress.phase.name}
