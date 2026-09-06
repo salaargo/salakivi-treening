@@ -3,9 +3,9 @@ import type { AppState, DayLog, ExerciseLog, ExerciseTemplate, SetLog } from '..
 import { formatDayMonth, parseDateKey, weekdayFull } from '../dates'
 import {
   addMachineToExercise,
-  getExercisesForGroup,
-  getGroupForDate,
-  getPhaseProgressForGroup,
+  getExercisesForPlan,
+  getPlanForDate,
+  getPhaseProgress,
 } from '../storage'
 import { createMachine, exerciseRounds, getMachine, getPrimaryMachine } from '../exercises'
 import { suggestedWeight } from '../phases'
@@ -56,18 +56,18 @@ function findExerciseLog(log: DayLog, exerciseId: string): ExerciseLog | undefin
 }
 
 function buildInitialLog(state: AppState, dateKey: string): DayLog | null {
-  const group = getGroupForDate(state, dateKey)
-  if (!group) return null
-  const exercises = getExercisesForGroup(state, group.id)
+  const plan = getPlanForDate(state, dateKey)
+  if (!plan) return null
+  const exercises = getExercisesForPlan(state, plan.id)
   if (!exercises.length) return null
 
-  const progress = getPhaseProgressForGroup(state, group.id, dateKey)
+  const progress = getPhaseProgress(state, dateKey)
   const phase = progress.phase
 
   const existing = state.logs[dateKey]
   if (
     existing &&
-    existing.groupId === group.id &&
+    existing.planId === plan.id &&
     existing.phaseId === phase.id &&
     logMatchesExercises(existing, exercises)
   ) {
@@ -76,7 +76,7 @@ function buildInitialLog(state: AppState, dateKey: string): DayLog | null {
 
   return {
     dateKey,
-    groupId: group.id,
+    planId: plan.id,
     phaseId: phase.id,
     exercises: exercises.map((ex) => buildExerciseLog(ex, phase)),
   }
@@ -131,16 +131,16 @@ export function WorkoutScreen({
 }: WorkoutScreenProps) {
   const date = parseDateKey(dateKey)
   const weekday = date.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6
-  const group = getGroupForDate(state, dateKey)
-  const progress = group ? getPhaseProgressForGroup(state, group.id, dateKey) : null
+  const plan = getPlanForDate(state, dateKey)
+  const progress = plan ? getPhaseProgress(state, dateKey) : null
   const phase = progress?.phase ?? null
-  const liveExercises = group ? getExercisesForGroup(state, group.id) : []
+  const liveExercises = plan ? getExercisesForPlan(state, plan.id) : []
 
   const [log, setLog] = useState<DayLog | null>(() => buildInitialLog(state, dateKey))
   const [flow, setFlow] = useState<Flow>(() => {
     const initial = buildInitialLog(state, dateKey)
     if (!initial) return 'pick'
-    const exercises = group ? getExercisesForGroup(state, group.id) : []
+    const exercises = plan ? getExercisesForPlan(state, plan.id) : []
     if (initial.finishedAt || (exercises.length > 0 && allExercisesDone(initial, exercises))) {
       return 'sauna'
     }
@@ -236,7 +236,7 @@ export function WorkoutScreen({
       .filter(({ ex }) => !isExerciseDone(log, ex.id))
   }, [log, liveExercises])
 
-  if (!group || !phase || !progress || !log || !liveExercises.length) {
+  if (!plan || !phase || !progress || !log || !liveExercises.length) {
     return (
       <div className="screen">
         <header className="topbar">
@@ -246,9 +246,9 @@ export function WorkoutScreen({
           <h2>Puhkepäev</h2>
         </header>
         <p className="muted pad">
-          {!group
-            ? 'Sellel päeval pole treeninggruppi.'
-            : 'Grupil puuduvad harjutused — lisa kava seadetes.'}
+          {!plan
+            ? 'Sellel päeval pole treeningkava.'
+            : 'Kaval puuduvad harjutused — lisa need seadetes.'}
         </p>
       </div>
     )
@@ -546,7 +546,7 @@ export function WorkoutScreen({
           <button type="button" className="btn btn-ghost btn-icon" onClick={onBack}>
             ←
           </button>
-          <h2>{group.name}</h2>
+          <h2>{plan.name}</h2>
         </header>
         <div className="sauna-hero">
           <p className="sauna-word">{missed.length ? 'Peatatud' : 'Sauna!'}</p>
@@ -615,7 +615,7 @@ export function WorkoutScreen({
             ←
           </button>
           <div className="topbar-title">
-            <h2>{group.name}</h2>
+            <h2>{plan.name}</h2>
             <p className="muted small">
               {weekdayFull(weekday)} · {formatDayMonth(date)}
             </p>
@@ -698,7 +698,7 @@ export function WorkoutScreen({
           ←
         </button>
         <div className="topbar-title">
-          <h2>{currentEx?.name ?? group.name}</h2>
+          <h2>{currentEx?.name ?? plan.name}</h2>
           <p className="muted small">
             Kordus <strong>{setNumber}</strong> / {totalRounds}
             {selected.length === 2 ? ' · segamini' : ''}

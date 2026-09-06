@@ -1,7 +1,7 @@
 interface HomeScreenProps {
   onTrain: () => void
   onSettings: () => void
-  groupName: string
+  planName: string
   phaseName: string
   phaseHint: string
   userEmail?: string
@@ -10,7 +10,7 @@ interface HomeScreenProps {
 export function HomeScreen({
   onTrain,
   onSettings,
-  groupName,
+  planName,
   phaseName,
   phaseHint,
   userEmail,
@@ -22,7 +22,7 @@ export function HomeScreen({
         <h1 className="brand">Treening</h1>
         {userEmail && <p className="muted small home-user">{userEmail}</p>}
         <p className="home-phase">
-          {groupName}: <strong>{phaseName}</strong>
+          {planName}: <strong>{phaseName}</strong>
         </p>
         <p className="muted">{phaseHint}</p>
       </header>

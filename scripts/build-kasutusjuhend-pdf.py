@@ -154,9 +154,9 @@ def build() -> Path:
     pdf.h1("3. Avaleht")
     pdf.body("Pärast sisselogimist näed pealehte:")
     pdf.bullet("ülal: Salakivi Treening + sinu e-post")
-    pdf.bullet("praegune grupp ja faas (nt Treening, nädal 1/2)")
+    pdf.bullet("praegune treeningkava ja faas (nt Tõuke, nädal 1/2)")
     pdf.bullet("nupp „Treenima“ — alusta treeningut")
-    pdf.bullet("nupp „Seaded“ — muuda või loo oma gruppe, kavasid ja nädalaid")
+    pdf.bullet("nupp „Seaded“ — muuda või loo oma treeningkavasid ja nädalaid")
     pdf.bullet("punane nupp „STOPP“ (all paremal) — lõpeta tänane treening enneaegu")
 
     # 4
@@ -213,33 +213,30 @@ def build() -> Path:
     pdf.add_page()
     pdf.h1("6. Seaded — mida seal teha?")
     pdf.body(
-        "Iga kasutaja saab ise oma treeningkava muuta või juurde luua — "
+        "Iga kasutaja saab ise oma treeningkavasid muuta või juurde luua — "
         "adminit ega treenerit pole vaja.\n\n"
         "Esmakordsel sisselogimisel saad automaatselt Argo (Salakivi) valmis algmalli "
-        "(grupid, kavad, nädalad, faasid). See on sinu isiklik koopia: muudatused "
-        "salvestuvad ainult sinu kontole ja ei muuda teiste kasutajate kavasid."
+        "(kavad Tõuke / Tõmme / Jalad + core, nädalad, faasid). See on sinu isiklik koopia.\n\n"
+        "Gruppe eraldi ei ole: nädalapäevale valid otse treeningkava "
+        "(nt esmaspäev = Tõuke harjutused)."
     )
-    pdf.h3("6.1 Treeninggrupid")
-    pdf.bullet("Nt „Tõuke“, „Tõmme“, „Jalad + core“ (algmallis) või lisa oma.")
-    pdf.bullet("Igal grupil on oma faasiring kalendri järgi.")
-
-    pdf.h3("6.2 Treeningkavad")
-    pdf.bullet("Kava kuulub gruppi.")
+    pdf.h3("6.1 Treeningkavad")
+    pdf.bullet("Iga kava = ühe treeningpäeva harjutused (nt „Tõuke“).")
     pdf.bullet("Lisa või muuda harjutusi: nimi, seeriate arv (nt 4), paus sekundites.")
     pdf.bullet("Lisa pinke (masinaid) koos baasraskusega (kg).")
 
-    pdf.h3("6.3 Nädalad")
+    pdf.h3("6.2 Nädalad")
     pdf.bullet("Koosta vähemalt 2 nädalamalli (või muuda algmalli).")
-    pdf.bullet("Iga päeva jaoks vali grupp või puhkepäev.")
+    pdf.bullet("Iga päeva jaoks vali treeningkava või puhkepäev.")
     pdf.bullet("Kalendris käivad nädalad kordamööda.")
 
-    pdf.h3("6.4 Faasid")
+    pdf.h3("6.3 Faasid")
     pdf.body(
         "Vaikimisi neli faasi: Start → Treening → Power → Taastus.\n"
         "Faasis saab muuta kestust (nädalad), korduste vahemikku ja raskuse kordajat."
     )
 
-    pdf.h3("6.5 Väljalogimine")
+    pdf.h3("6.4 Väljalogimine")
     pdf.bullet("Seaded → „Logi välja“.")
 
     pdf.h1("7. Pink ja seeria treeningus")
@@ -254,7 +251,7 @@ def build() -> Path:
     pdf.h1("8. Kiire kontrollnimekiri")
     pdf.bullet("1) Ava link brauseris")
     pdf.bullet("2) Loo konto / logi sisse (saad Argo algmalli)")
-    pdf.bullet("3) Soovi korral Seaded: muuda gruppe / kavasid / nädalaid")
+    pdf.bullet("3) Soovi korral Seaded: muuda kavasid / nädalaid")
     pdf.bullet("4) Treenima → nädal → päev")
     pdf.bullet("5) Vali harjutus → Start → Tehtud → paus")
     pdf.bullet("6) Lõpus „Sauna!“ → Valmis")

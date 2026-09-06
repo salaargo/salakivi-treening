@@ -5,8 +5,8 @@ import {
   loadState,
   saveState,
   getSpotlightProgress,
-  getSpotlightGroup,
-  startGroupPhase,
+  getSpotlightPlan,
+  startPhase,
   stopTodayWorkout,
   todayKey,
 } from './storage'
@@ -140,12 +140,11 @@ export default function App() {
   }
 
   function handleStartPhase(phaseId: PhaseId) {
-    const group = getSpotlightGroup(state)
-    if (!group) {
+    if (!getSpotlightPlan(state)) {
       goToWeek()
       return
     }
-    setState((prev) => startGroupPhase(prev, group.id, phaseId))
+    setState((prev) => startPhase(prev, phaseId))
     goToWeek()
   }
 
@@ -203,12 +202,12 @@ export default function App() {
 
       {screen.name === 'home' && (
         <HomeScreen
-          groupName={spotlight?.group.name ?? 'Grupp'}
+          planName={spotlight?.plan.name ?? 'Kava'}
           phaseName={spotlight?.progress.phase.name ?? '—'}
           phaseHint={
             spotlight
               ? `${spotlight.progress.phase.description} · nädal ${spotlight.progress.weekInPhase}/${spotlight.progress.phase.weeks}`
-              : 'Lisa grupp, kavad ja pane need nädalapäevadele.'
+              : 'Lisa kavad ja pane need nädalapäevadele.'
           }
           userEmail={cloud ? userEmail : undefined}
           onTrain={() => setScreen({ name: 'train-choice' })}
@@ -218,7 +217,7 @@ export default function App() {
 
       {screen.name === 'train-choice' && (
         <TrainChoiceScreen
-          groupName={spotlight?.group.name ?? 'Grupp'}
+          planName={spotlight?.plan.name ?? 'Kava'}
           phaseName={spotlight?.progress.phase.name ?? '—'}
           phaseHint={
             spotlight
@@ -233,7 +232,7 @@ export default function App() {
 
       {screen.name === 'train-phase' && (
         <TrainPhaseScreen
-          groupName={spotlight?.group.name ?? 'Grupp'}
+          planName={spotlight?.plan.name ?? 'Kava'}
           phases={state.phases}
           onSelectPhase={handleStartPhase}
           onBack={() => setScreen({ name: 'train-choice' })}

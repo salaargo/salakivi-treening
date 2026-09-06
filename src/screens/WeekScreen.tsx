@@ -8,8 +8,8 @@ import {
   weekdayLabel,
 } from '../dates'
 import {
-  getGroupForDate,
-  getPhaseForGroup,
+  getPlanForDate,
+  getPhaseForDate,
   getWeekTemplateForDate,
   todayKey,
   dayLogHasIncomplete,
@@ -61,8 +61,8 @@ export function WeekScreen({
         {days.map((date) => {
           const key = toDateKey(date)
           const weekday = date.getDay() as Weekday
-          const group = getGroupForDate(state, key)
-          const phase = group ? getPhaseForGroup(state, group.id, key) : null
+          const plan = getPlanForDate(state, key)
+          const phase = getPhaseForDate(state, key)
           const isToday = key === today
           const log = state.logs[key]
           const partial = Boolean(log?.finishedAt && dayLogHasIncomplete(log))
@@ -72,9 +72,9 @@ export function WeekScreen({
             <li key={key}>
               <button
                 type="button"
-                className={`day-card ${isToday ? 'is-today' : ''} ${group ? '' : 'is-rest'} ${done ? 'is-done' : ''} ${partial ? 'is-partial' : ''}`}
-                onClick={() => group && onSelectDay(key)}
-                disabled={!group}
+                className={`day-card ${isToday ? 'is-today' : ''} ${plan ? '' : 'is-rest'} ${done ? 'is-done' : ''} ${partial ? 'is-partial' : ''}`}
+                onClick={() => plan && onSelectDay(key)}
+                disabled={!plan}
               >
                 <div className="day-card-left">
                   <span className="day-letter">{weekdayLabel(weekday)}</span>
@@ -84,12 +84,12 @@ export function WeekScreen({
                   </div>
                 </div>
                 <div className="day-card-right">
-                  {group && phase ? (
+                  {plan && phase ? (
                     <>
                       <span className="phase-pill" data-phase={phase.id}>
                         {phase.name}
                       </span>
-                      <p className="day-plan">{group.name}</p>
+                      <p className="day-plan">{plan.name}</p>
                       {done && <p className="done-tag">Tehtud</p>}
                       {partial && <p className="missed-tag">Tegemata jäi</p>}
                     </>

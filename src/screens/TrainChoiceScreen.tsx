@@ -1,5 +1,5 @@
 interface TrainChoiceScreenProps {
-  groupName: string
+  planName: string
   phaseName: string
   phaseHint: string
   onContinue: () => void
@@ -8,7 +8,7 @@ interface TrainChoiceScreenProps {
 }
 
 export function TrainChoiceScreen({
-  groupName,
+  planName,
   phaseName,
   phaseHint,
   onContinue,
@@ -25,7 +25,7 @@ export function TrainChoiceScreen({
       </header>
 
       <div className="choice-card">
-        <p className="muted small">{groupName}</p>
+        <p className="muted small">{planName}</p>
         <p className="choice-title">
           Praegune faas: <strong>{phaseName}</strong>
         </p>

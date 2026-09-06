@@ -5,24 +5,18 @@ import type {
   ExerciseTemplate,
   Phase,
   PhaseId,
-  TrainingGroup,
   Weekday,
   WeekTemplate,
   WorkoutPlan,
 } from '../types'
-import { createEmptyWeekTemplate, weekdayFull, startOfWeekMonday, toDateKey } from '../dates'
+import { createEmptyWeekTemplate, weekdayFull } from '../dates'
 import {
   buildPhaseDescription,
   cycleWeeks,
   DEFAULT_REST_SECONDS,
 } from '../phases'
 import { createMachine, withDefaultMachine } from '../exercises'
-import {
-  getGroup,
-  getPhaseProgressForGroup,
-  getPhaseForGroup,
-  WEEK_ORDER,
-} from '../storage'
+import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
 
 interface SettingsScreenProps {
   state: AppState
@@ -38,14 +32,13 @@ function newId(prefix: string): string {
 
 export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }: SettingsScreenProps) {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
-  const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null)
   const [editingPhaseId, setEditingPhaseId] = useState<PhaseId | null>(null)
   const editing = state.plans.find((p) => p.id === editingPlanId) ?? null
-  const editingGroup = state.groups.find((g) => g.id === editingGroupId) ?? null
   const editingWeek = state.weeks.find((w) => w.id === editingWeekId) ?? null
   const editingPhase = state.phases.find((p) => p.id === editingPhaseId) ?? null
   const totalCycleWeeks = cycleWeeks(state.phases)
+  const phaseProgress = getPhaseProgress(state)
 
   function updatePhase(phaseId: PhaseId, patch: Partial<Phase>) {
     onChange({
@@ -155,19 +148,6 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
     })
   }
 
-  function updateGroup(groupId: string, patch: Partial<TrainingGroup>) {
-    onChange({
-      ...state,
-      groups: state.groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g)),
-      plans:
-        typeof patch.name === 'string'
-          ? state.plans.map((p) =>
-              p.groupId === groupId ? { ...p, name: patch.name as string } : p,
-            )
-          : state.plans,
-    })
-  }
-
   function updateWeek(weekId: string, patch: Partial<WeekTemplate>) {
     onChange({
       ...state,
@@ -175,11 +155,11 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
     })
   }
 
-  function assignWeekDay(weekId: string, weekday: Weekday, groupId: string | null) {
+  function assignWeekDay(weekId: string, weekday: Weekday, planId: string | null) {
     onChange({
       ...state,
       weeks: state.weeks.map((w) =>
-        w.id !== weekId ? w : { ...w, days: { ...w.days, [weekday]: groupId } },
+        w.id !== weekId ? w : { ...w, days: { ...w.days, [weekday]: planId } },
       ),
     })
   }
@@ -199,42 +179,10 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
     if (editingWeekId === weekId) setEditingWeekId(null)
   }
 
-  function addGroup() {
-    const group: TrainingGroup = {
-      id: newId('group'),
-      name: `Grupp ${state.groups.length + 1}`,
-      cycleStartDate: toDateKey(startOfWeekMonday(new Date())),
-    }
-    onChange({ ...state, groups: [...state.groups, group] })
-    setEditingGroupId(group.id)
-  }
-
-  function removeGroup(groupId: string) {
-    if (state.groups.length <= 1) return
-    const fallback = state.groups.find((g) => g.id !== groupId)!.id
-    onChange({
-      ...state,
-      groups: state.groups.filter((g) => g.id !== groupId),
-      plans: state.plans.map((p) =>
-        p.groupId === groupId ? { ...p, groupId: fallback } : p,
-      ),
-      weeks: state.weeks.map((w) => ({
-        ...w,
-        days: Object.fromEntries(
-          Object.entries(w.days).map(([day, id]) => [day, id === groupId ? null : id]),
-        ) as WeekTemplate['days'],
-      })),
-    })
-    if (editingGroupId === groupId) setEditingGroupId(null)
-  }
-
   function addPlan() {
-    const group = state.groups[0]
-    if (!group) return
     const plan: WorkoutPlan = {
       id: newId('plan'),
-      name: group.name,
-      groupId: group.id,
+      name: 'Uus kava',
       exercises: [withDefaultMachine('Harjutus', 20, DEFAULT_REST_SECONDS, newId('ex'))],
     }
     onChange({ ...state, plans: [...state.plans, plan] })
@@ -437,33 +385,33 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
           />
         </label>
 
-        <p className="muted small pad">Vali igale päevale treeninggrupp või puhkepäev.</p>
+        <p className="muted small pad">Vali igale päevale treeningkava või puhkepäev.</p>
 
         <ul className="assign-list">
           {WEEK_ORDER.map((day) => {
-            const groupId = editingWeek.days[day] ?? null
-            const group = groupId ? getGroup(state, groupId) : null
+            const planId = editingWeek.days[day] ?? null
+            const plan = planId ? getPlan(state, planId) : null
             return (
               <li key={day} className="assign-block">
                 <div className="assign-row">
                   <span>{weekdayFull(day)}</span>
                   <select
-                    value={groupId ?? ''}
+                    value={planId ?? ''}
                     onChange={(e) =>
                       assignWeekDay(editingWeek.id, day, e.target.value || null)
                     }
                   >
                     <option value="">Puhkepäev</option>
-                    {state.groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
+                    {state.plans.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
                       </option>
                     ))}
                   </select>
                 </div>
-                {group && (
+                {plan && (
                   <p className="assign-phase muted small">
-                    Grupp: <strong>{group.name}</strong>
+                    Kava: <strong>{plan.name}</strong>
                   </p>
                 )}
               </li>
@@ -484,66 +432,7 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
     )
   }
 
-  if (editingGroup) {
-    const progress = getPhaseProgressForGroup(state, editingGroup.id)
-    const planCount = state.plans.filter((p) => p.groupId === editingGroup.id).length
-    return (
-      <div className="screen">
-        <header className="topbar">
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon"
-            onClick={() => setEditingGroupId(null)}
-            aria-label="Tagasi"
-          >
-            ←
-          </button>
-          <h2>Muuda gruppi</h2>
-        </header>
-
-        <label className="field block">
-          <span>Nimi</span>
-          <input
-            type="text"
-            value={editingGroup.name}
-            onChange={(e) => updateGroup(editingGroup.id, { name: e.target.value })}
-          />
-        </label>
-
-        <div className="settings-block">
-          <h3>Faasi edenemine</h3>
-          <p className="muted small">
-            Faas jookseb kalendri järgi. Ring: {totalCycleWeeks} nädalat, pärast viimast faasi
-            algab Start uuesti.
-          </p>
-          <p>
-            Praegu:{' '}
-            <span className="phase-pill" data-phase={progress.phase.id}>
-              {progress.phase.name}
-            </span>{' '}
-            · nädal {progress.weekInPhase}/{progress.phase.weeks}
-          </p>
-          <p className="muted small">
-            {planCount} kava grupis · harjutused tulevad grupi kavadest
-          </p>
-        </div>
-
-        {state.groups.length > 1 && (
-          <button
-            type="button"
-            className="btn btn-ghost danger full"
-            onClick={() => removeGroup(editingGroup.id)}
-          >
-            Kustuta grupp
-          </button>
-        )}
-      </div>
-    )
-  }
-
   if (editing) {
-    const group = getGroup(state, editing.groupId)
-    const progress = getPhaseProgressForGroup(state, editing.groupId)
     return (
       <div className="screen">
         <header className="topbar">
@@ -559,25 +448,15 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
         </header>
 
         <label className="field block">
-          <span>Grupp</span>
-          <select
-            value={editing.groupId}
-            onChange={(e) => {
-              const groupId = e.target.value
-              const groupName =
-                state.groups.find((g) => g.id === groupId)?.name ?? editing.name
-              updatePlan(editing.id, { groupId, name: groupName })
-            }}
-          >
-            {state.groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
+          <span>Nimi</span>
+          <input
+            type="text"
+            value={editing.name}
+            onChange={(e) => updatePlan(editing.id, { name: e.target.value })}
+          />
         </label>
         <p className="muted small pad">
-          {group?.name ?? 'Grupp'}: faas <strong>{progress.phase.name}</strong>
+          Praegu faas: <strong>{phaseProgress.phase.name}</strong>
         </p>
 
         <div className="exercise-stack">
@@ -811,9 +690,8 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
       <section className="settings-block starter-note">
         <h3>Sinu treeningkava</h3>
         <p className="muted small">
-          See on sinu isiklik kava — saad ise gruppe, kavasid ja nädalaid muuta või juurde luua.
-          Adminit ega treenerit pole vaja. Esmakordsel sisselogimisel said Algmalliks Salakivi (Argo)
-          valmis kava; sinu muudatused salvestuvad ainult sinu kontole.
+          Sinu isiklikud treeningkavad. Saad ise kavasid ja nädalaid muuta. Nädalapäevale vali
+          treeningkava (nt Tõuke = esmaspäev).
         </p>
       </section>
 
@@ -826,7 +704,7 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
         </div>
         <p className="muted small">
           Koosta vähemalt 2 nädalat. Kalendris käivad need kordamööda (Nädal 1 → 2 → … → 1).
-          Päevale vali treeninggrupp.
+          Päevale vali treeningkava.
         </p>
         <ul className="plan-list">
           {state.weeks.map((w, index) => {
@@ -850,60 +728,25 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
 
       <section className="settings-block">
         <div className="section-head">
-          <h3>Grupid</h3>
-          <button type="button" className="btn btn-secondary" onClick={addGroup}>
-            Lisa
-          </button>
-        </div>
-        <ul className="plan-list">
-          {state.groups.map((g) => {
-            const progress = getPhaseProgressForGroup(state, g.id)
-            const planCount = state.plans.filter((p) => p.groupId === g.id).length
-            return (
-              <li key={g.id}>
-                <button type="button" className="plan-row" onClick={() => setEditingGroupId(g.id)}>
-                  <div>
-                    <p className="plan-name">{g.name}</p>
-                    <p className="muted small">
-                      {planCount} kava · {progress.phase.name}
-                    </p>
-                  </div>
-                  <span className="phase-pill" data-phase={progress.phase.id}>
-                    {progress.phase.name}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      </section>
-
-      <section className="settings-block">
-        <div className="section-head">
           <h3>Treeningkavad</h3>
           <button type="button" className="btn btn-secondary" onClick={addPlan}>
             Lisa
           </button>
         </div>
-        <p className="muted small">Kava harjutused kuuluvad gruppi — treeningpäeval jooksevad grupi kavade harjutused.</p>
         <ul className="plan-list">
-          {state.plans.map((p) => {
-            const group = getGroup(state, p.groupId)
-            const phase = getPhaseForGroup(state, p.groupId)
-            return (
-              <li key={p.id}>
-                <button type="button" className="plan-row" onClick={() => setEditingPlanId(p.id)}>
-                  <div>
-                    <p className="plan-name">{group?.name ?? 'Grupp'}</p>
-                    <p className="muted small">{p.exercises.length} harjutust</p>
-                  </div>
-                  <span className="phase-pill" data-phase={phase.id}>
-                    {phase.name}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
+          {state.plans.map((p) => (
+            <li key={p.id}>
+              <button type="button" className="plan-row" onClick={() => setEditingPlanId(p.id)}>
+                <div>
+                  <p className="plan-name">{p.name}</p>
+                  <p className="muted small">{p.exercises.length} harjutust</p>
+                </div>
+                <span className="phase-pill" data-phase={phaseProgress.phase.id}>
+                  {phaseProgress.phase.name}
+                </span>
+              </button>
+            </li>
+          ))}
         </ul>
       </section>
 

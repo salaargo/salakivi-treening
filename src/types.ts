@@ -14,13 +14,6 @@ export interface Phase {
   description: string
 }
 
-export interface TrainingGroup {
-  id: string
-  name: string
-  /** Kalendrinädala esmaspäev, millest faasiring jookseb */
-  cycleStartDate: string
-}
-
 /** Trenaažöör / pink sama harjutuse jaoks */
 export interface ExerciseMachine {
   id: string
@@ -41,12 +34,10 @@ export interface ExerciseTemplate {
 export interface WorkoutPlan {
   id: string
   name: string
-  /** Grupp, kuhu kava kuulub */
-  groupId: string
   exercises: ExerciseTemplate[]
 }
 
-/** Nädalapäev → treeninggrupp (null = puhkepäev) */
+/** Nädalapäev → treeningkava id (null = puhkepäev) */
 export type WeekDayAssignments = Partial<Record<Weekday, string | null>>
 
 export interface WeekTemplate {
@@ -70,7 +61,7 @@ export interface ExerciseLog {
 
 export interface DayLog {
   dateKey: string
-  groupId: string
+  planId: string
   phaseId: PhaseId
   exercises: ExerciseLog[]
   /** Esimese Starti aeg */
@@ -86,11 +77,12 @@ export interface DayLog {
 
 export interface AppState {
   phases: Phase[]
-  groups: TrainingGroup[]
   plans: WorkoutPlan[]
   /** Koostatud nädalad (vähemalt 2), kalendris vaheldumisi */
   weeks: WeekTemplate[]
   logs: Record<string, DayLog>
+  /** Faasiringi algus (esmaspäeva kuupäev) */
+  cycleStartDate: string
 }
 
 export interface PhaseProgress {

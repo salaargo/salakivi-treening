@@ -6,7 +6,6 @@ import type {
   ExerciseTemplate,
   PhaseId,
   PhaseProgress,
-  TrainingGroup,
   Weekday,
   WeekTemplate,
   WorkoutPlan,
@@ -32,8 +31,9 @@ import {
 import type { Phase } from './types'
 import { exerciseRounds, getPrimaryMachine } from './exercises'
 
-const STORAGE_KEY = 'salakivi-treening-v8'
+const STORAGE_KEY = 'salakivi-treening-v9'
 const LEGACY_KEYS = [
+  'salakivi-treening-v8',
   'salakivi-treening-v7',
   'salakivi-treening-v6',
   'salakivi-treening-v5',
@@ -57,10 +57,7 @@ function emptyDays(): WeekTemplate['days'] {
   return { 0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null }
 }
 
-function normalizePlan(
-  raw: Record<string, unknown>,
-  fallbackGroupId: string,
-): WorkoutPlan | null {
+function normalizePlan(raw: Record<string, unknown>): WorkoutPlan | null {
   if (typeof raw.id !== 'string' || typeof raw.name !== 'string') return null
   const exercisesRaw = Array.isArray(raw.exercises) ? raw.exercises : []
   const seenIds = new Set<string>()
@@ -124,15 +121,15 @@ function normalizePlan(
   return {
     id: raw.id,
     name: raw.name,
-    groupId: typeof raw.groupId === 'string' ? raw.groupId : fallbackGroupId,
     exercises,
   }
 }
 
+/** Migreeri vanad groupId-päevad → planId (grupi esimene kava). */
 function normalizeWeekDays(
   raw: unknown,
-  validGroupIds: Set<string>,
-  planToGroup: Map<string, string>,
+  validPlanIds: Set<string>,
+  groupToPlan: Map<string, string>,
 ): WeekTemplate['days'] {
   const days = emptyDays()
   if (!raw || typeof raw !== 'object') return days
@@ -142,8 +139,8 @@ function normalizeWeekDays(
     if (value === null) {
       days[day as Weekday] = null
     } else if (typeof value === 'string') {
-      if (validGroupIds.has(value)) days[day as Weekday] = value
-      else if (planToGroup.has(value)) days[day as Weekday] = planToGroup.get(value)!
+      if (validPlanIds.has(value)) days[day as Weekday] = value
+      else if (groupToPlan.has(value)) days[day as Weekday] = groupToPlan.get(value)!
       else days[day as Weekday] = null
     }
   }
@@ -152,11 +149,10 @@ function normalizeWeekDays(
 
 function normalizeWeeks(
   data: Record<string, unknown>,
-  groups: TrainingGroup[],
   plans: WorkoutPlan[],
+  groupToPlan: Map<string, string>,
 ): WeekTemplate[] {
-  const validGroupIds = new Set(groups.map((g) => g.id))
-  const planToGroup = new Map(plans.map((p) => [p.id, p.groupId]))
+  const validPlanIds = new Set(plans.map((p) => p.id))
 
   if (Array.isArray(data.weeks) && data.weeks.length > 0) {
     const weeks = data.weeks
@@ -166,7 +162,7 @@ function normalizeWeeks(
         return {
           id: typeof item.id === 'string' ? item.id : newId('week'),
           name: typeof item.name === 'string' ? item.name : `Nädal ${index + 1}`,
-          days: normalizeWeekDays(item.days, validGroupIds, planToGroup),
+          days: normalizeWeekDays(item.days, validPlanIds, groupToPlan),
         } satisfies WeekTemplate
       })
       .filter((w): w is WeekTemplate => w !== null)
@@ -177,8 +173,7 @@ function normalizeWeeks(
     return weeks
   }
 
-  // Legacy: single calendar of planIds → two week copies with groupIds
-  const legacyDays = normalizeWeekDays(data.calendar, validGroupIds, planToGroup)
+  const legacyDays = normalizeWeekDays(data.calendar, validPlanIds, groupToPlan)
   return [
     { id: newId('week'), name: 'Nädal 1', days: { ...legacyDays } },
     { id: newId('week'), name: 'Nädal 2', days: { ...legacyDays } },
@@ -237,60 +232,13 @@ function normalizePhases(raw: unknown): Phase[] {
   })
 }
 
-function normalizeState(raw: unknown): AppState | null {
-  if (!raw || typeof raw !== 'object') return null
-  const data = raw as Record<string, unknown>
-  const fallbackStart = defaultCycleStart()
-  const phases = normalizePhases(data.phases)
-
-  let groups: TrainingGroup[] = []
-  if (Array.isArray(data.groups)) {
-    groups = data.groups
-      .map((g) => {
-        if (!g || typeof g !== 'object') return null
-        const item = g as Record<string, unknown>
-        if (typeof item.id !== 'string' || typeof item.name !== 'string') return null
-        return {
-          id: item.id,
-          name: item.name,
-          cycleStartDate:
-            typeof item.cycleStartDate === 'string' ? item.cycleStartDate : fallbackStart,
-        }
-      })
-      .filter((g): g is TrainingGroup => g !== null)
-  }
-
-  if (!groups.length) {
-    groups = [{ id: newId('group'), name: 'Põhiprogramm', cycleStartDate: fallbackStart }]
-  }
-
-  const fallbackGroupId = groups[0].id
-  const plansRaw = Array.isArray(data.plans) ? data.plans : []
-  const plans = plansRaw
-    .map((p) =>
-      p && typeof p === 'object'
-        ? normalizePlan(p as Record<string, unknown>, fallbackGroupId)
-        : null,
-    )
-    .filter((p): p is WorkoutPlan => p !== null)
-    .map((p) => ({
-      ...p,
-      groupId: groups.some((g) => g.id === p.groupId) ? p.groupId : fallbackGroupId,
-    }))
-
-  if (!plans.length) return null
-
-  const weeks = normalizeWeeks(data, groups, plans)
-  const logs = normalizeLogs(data.logs, plans)
-
-  return { phases, groups, plans, weeks, logs }
-}
-
 function normalizeLogs(
   raw: unknown,
   plans: WorkoutPlan[],
+  groupToPlan: Map<string, string>,
 ): AppState['logs'] {
   if (!raw || typeof raw !== 'object') return {}
+  const validPlanIds = new Set(plans.map((p) => p.id))
   const exerciseMachines = new Map<string, string>()
   for (const plan of plans) {
     for (const ex of plan.exercises) {
@@ -302,8 +250,17 @@ function normalizeLogs(
   for (const [dateKey, entry] of Object.entries(raw as Record<string, unknown>)) {
     if (!entry || typeof entry !== 'object') continue
     const log = entry as Record<string, unknown>
-    if (typeof log.groupId !== 'string' || !isPhaseId(log.phaseId)) continue
-    if (!Array.isArray(log.exercises)) continue
+    if (!isPhaseId(log.phaseId) || !Array.isArray(log.exercises)) continue
+
+    let planId: string | null = null
+    if (typeof log.planId === 'string' && validPlanIds.has(log.planId)) {
+      planId = log.planId
+    } else if (typeof log.groupId === 'string') {
+      if (validPlanIds.has(log.groupId)) planId = log.groupId
+      else planId = groupToPlan.get(log.groupId) ?? null
+    }
+    if (!planId) planId = plans[0]?.id ?? null
+    if (!planId) continue
 
     const exercises = log.exercises
       .map((item) => {
@@ -321,9 +278,7 @@ function normalizeLogs(
             const s = set as Record<string, unknown>
             return {
               machineId:
-                typeof s.machineId === 'string'
-                  ? s.machineId
-                  : fallbackMachine,
+                typeof s.machineId === 'string' ? s.machineId : fallbackMachine,
               weightKg: typeof s.weightKg === 'number' ? s.weightKg : 0,
               reps: typeof s.reps === 'number' ? s.reps : 0,
               completed: Boolean(s.completed),
@@ -339,7 +294,7 @@ function normalizeLogs(
     if (!exercises.length) continue
     out[dateKey] = {
       dateKey,
-      groupId: log.groupId,
+      planId,
       phaseId: log.phaseId,
       exercises,
       startedAt: typeof log.startedAt === 'string' ? log.startedAt : undefined,
@@ -350,6 +305,59 @@ function normalizeLogs(
     }
   }
   return out
+}
+
+function normalizeState(raw: unknown): AppState | null {
+  if (!raw || typeof raw !== 'object') return null
+  const data = raw as Record<string, unknown>
+  const fallbackStart = defaultCycleStart()
+  const phases = normalizePhases(data.phases)
+
+  // Legacy groups → map groupId → first plan id
+  const groupToPlan = new Map<string, string>()
+  let cycleStartDate = fallbackStart
+  if (typeof data.cycleStartDate === 'string') {
+    cycleStartDate = data.cycleStartDate
+  }
+
+  if (Array.isArray(data.groups)) {
+    for (const g of data.groups) {
+      if (!g || typeof g !== 'object') continue
+      const item = g as Record<string, unknown>
+      if (typeof item.id !== 'string') continue
+      if (typeof item.cycleStartDate === 'string' && !data.cycleStartDate) {
+        cycleStartDate = item.cycleStartDate
+      }
+    }
+  }
+
+  const plansRaw = Array.isArray(data.plans) ? data.plans : []
+  const plans = plansRaw
+    .map((p) => (p && typeof p === 'object' ? normalizePlan(p as Record<string, unknown>) : null))
+    .filter((p): p is WorkoutPlan => p !== null)
+
+  if (!plans.length) return null
+
+  // Build group → plan from legacy plan.groupId
+  for (const p of plansRaw) {
+    if (!p || typeof p !== 'object') continue
+    const item = p as Record<string, unknown>
+    if (typeof item.id !== 'string' || typeof item.groupId !== 'string') continue
+    if (!groupToPlan.has(item.groupId)) groupToPlan.set(item.groupId, item.id)
+  }
+  if (Array.isArray(data.groups)) {
+    for (const g of data.groups) {
+      if (!g || typeof g !== 'object') continue
+      const item = g as Record<string, unknown>
+      if (typeof item.id !== 'string') continue
+      if (!groupToPlan.has(item.id) && plans[0]) groupToPlan.set(item.id, plans[0].id)
+    }
+  }
+
+  const weeks = normalizeWeeks(data, plans, groupToPlan)
+  const logs = normalizeLogs(data.logs, plans, groupToPlan)
+
+  return { phases, plans, weeks, logs, cycleStartDate }
 }
 
 export function parseAppState(raw: unknown): AppState {
@@ -377,9 +385,8 @@ export function saveState(state: AppState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
 }
 
-/** Nädalamalli indeks kalendrikuupäeva jaoks (vaheldumisi Nädal 1, 2, …). */
 export function getWeekTemplateIndex(state: AppState, dateKey: string): number {
-  const anchor = state.groups[0]?.cycleStartDate ?? defaultCycleStart()
+  const anchor = state.cycleStartDate || defaultCycleStart()
   const startMonday = startOfWeekMonday(parseDateKey(anchor))
   const dateMonday = startOfWeekMonday(parseDateKey(dateKey))
   const days = Math.round((dateMonday.getTime() - startMonday.getTime()) / (1000 * 60 * 60 * 24))
@@ -393,21 +400,20 @@ export function getWeekTemplateForDate(state: AppState, dateKey: string): WeekTe
   return state.weeks[index] ?? state.weeks[0]
 }
 
-export function getGroupForDate(state: AppState, dateKey: string): TrainingGroup | null {
+export function getPlan(state: AppState, planId: string): WorkoutPlan | null {
+  return state.plans.find((p) => p.id === planId) ?? null
+}
+
+export function getPlanForDate(state: AppState, dateKey: string): WorkoutPlan | null {
   const template = getWeekTemplateForDate(state, dateKey)
   const weekday = parseDateKey(dateKey).getDay() as Weekday
-  const groupId = template.days[weekday] ?? null
-  if (!groupId) return null
-  return state.groups.find((g) => g.id === groupId) ?? null
+  const planId = template.days[weekday] ?? null
+  if (!planId) return null
+  return getPlan(state, planId)
 }
 
-/** Grupi kõikide kavade harjutused ühe treeningu jaoks. */
-export function getExercisesForGroup(state: AppState, groupId: string): ExerciseTemplate[] {
-  return state.plans.filter((p) => p.groupId === groupId).flatMap((p) => p.exercises)
-}
-
-export function getGroup(state: AppState, groupId: string): TrainingGroup | null {
-  return state.groups.find((g) => g.id === groupId) ?? null
+export function getExercisesForPlan(state: AppState, planId: string): ExerciseTemplate[] {
+  return getPlan(state, planId)?.exercises ?? []
 }
 
 export function getCalendarCycleWeekIndex(
@@ -423,13 +429,11 @@ export function getCalendarCycleWeekIndex(
   return ((weeks % total) + total) % total
 }
 
-export function getPhaseProgressForGroup(
+export function getPhaseProgress(
   state: AppState,
-  groupId: string,
   dateKey: string = todayKey(),
 ): PhaseProgress {
-  const group = getGroup(state, groupId)
-  const cycleStart = group?.cycleStartDate ?? defaultCycleStart()
+  const cycleStart = state.cycleStartDate || defaultCycleStart()
   const cycleWeekIndex = getCalendarCycleWeekIndex(cycleStart, dateKey, state.phases)
   return {
     phase: getPhaseForCycleWeek(state.phases, cycleWeekIndex),
@@ -448,63 +452,46 @@ export function cycleStartDateForPhase(
   return toDateKey(addDays(monday, -weekIndex * 7))
 }
 
-export function startGroupPhase(
-  state: AppState,
-  groupId: string,
-  phaseId: PhaseId,
-): AppState {
-  const cycleStartDate = cycleStartDateForPhase(state.phases, phaseId)
+export function startPhase(state: AppState, phaseId: PhaseId): AppState {
   return {
     ...state,
-    groups: state.groups.map((g) =>
-      g.id === groupId ? { ...g, cycleStartDate } : g,
-    ),
+    cycleStartDate: cycleStartDateForPhase(state.phases, phaseId),
   }
 }
 
-export function getPhaseForGroup(
-  state: AppState,
-  groupId: string,
-  dateKey: string = todayKey(),
-): Phase {
-  return getPhaseProgressForGroup(state, groupId, dateKey).phase
-}
-
 export function getPhaseForDate(state: AppState, dateKey: string): Phase | null {
-  const group = getGroupForDate(state, dateKey)
-  if (!group) return null
-  return getPhaseForGroup(state, group.id, dateKey)
+  if (!getPlanForDate(state, dateKey)) return null
+  return getPhaseProgress(state, dateKey).phase
 }
 
-export function getSpotlightGroup(state: AppState): TrainingGroup | null {
+export function getSpotlightPlan(state: AppState): WorkoutPlan | null {
   const today = todayKey()
-  const todayGroup = getGroupForDate(state, today)
-  if (todayGroup) return todayGroup
+  const todayPlan = getPlanForDate(state, today)
+  if (todayPlan) return todayPlan
 
   for (let i = 1; i <= 14; i++) {
     const d = new Date()
     d.setDate(d.getDate() + i)
-    const group = getGroupForDate(state, toDateKey(d))
-    if (group) return group
+    const plan = getPlanForDate(state, toDateKey(d))
+    if (plan) return plan
   }
 
-  return state.groups[0] ?? null
+  return state.plans[0] ?? null
 }
 
 export function getSpotlightProgress(state: AppState): {
-  group: TrainingGroup
+  plan: WorkoutPlan
   progress: PhaseProgress
 } | null {
-  const group = getSpotlightGroup(state)
-  if (!group) return null
-  return { group, progress: getPhaseProgressForGroup(state, group.id) }
+  const plan = getSpotlightPlan(state)
+  if (!plan) return null
+  return { plan, progress: getPhaseProgress(state) }
 }
 
 export function todayKey(): string {
   return toDateKey(new Date())
 }
 
-/** Lisa pink harjutuse alla (salvestub kavasse). */
 export function addMachineToExercise(
   state: AppState,
   exerciseId: string,
@@ -521,10 +508,7 @@ export function addMachineToExercise(
   }
 }
 
-function buildExerciseLogSkeleton(
-  ex: ExerciseTemplate,
-  phase: Phase,
-): ExerciseLog {
+function buildExerciseLogSkeleton(ex: ExerciseTemplate, phase: Phase): ExerciseLog {
   const machine = getPrimaryMachine(ex)
   return {
     exerciseId: ex.id,
@@ -546,29 +530,22 @@ export function dayLogHasIncomplete(log: DayLog): boolean {
   return log.exercises.some((ex) => ex.sets.some((s) => !s.completed))
 }
 
-/** Tagasta/loo päeva logi (tegemata seeriad completed: false). */
 export function ensureDayLog(state: AppState, dateKey: string): DayLog | null {
-  const group = getGroupForDate(state, dateKey)
-  if (!group) return null
-  const exercises = getExercisesForGroup(state, group.id)
-  if (!exercises.length) return null
-  const phase = getPhaseProgressForGroup(state, group.id, dateKey).phase
+  const plan = getPlanForDate(state, dateKey)
+  if (!plan || !plan.exercises.length) return null
+  const phase = getPhaseProgress(state, dateKey).phase
   const existing = state.logs[dateKey]
-  if (existing && existing.groupId === group.id && existing.phaseId === phase.id) {
+  if (existing && existing.planId === plan.id && existing.phaseId === phase.id) {
     return existing
   }
   return {
     dateKey,
-    groupId: group.id,
+    planId: plan.id,
     phaseId: phase.id,
-    exercises: exercises.map((ex) => buildExerciseLogSkeleton(ex, phase)),
+    exercises: plan.exercises.map((ex) => buildExerciseLogSkeleton(ex, phase)),
   }
 }
 
-/**
- * Lõpeta tänane treening varakult.
- * Tegemata seeriad jäävad completed: false (punane logis).
- */
 export function stopTodayWorkout(
   state: AppState,
   liveLog?: DayLog | null,

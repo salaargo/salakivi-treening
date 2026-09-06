@@ -1,14 +1,14 @@
 import type { Phase, PhaseId } from '../types'
 
 interface TrainPhaseScreenProps {
-  groupName: string
+  planName: string
   phases: Phase[]
   onSelectPhase: (phaseId: PhaseId) => void
   onBack: () => void
 }
 
 export function TrainPhaseScreen({
-  groupName,
+  planName,
   phases,
   onSelectPhase,
   onBack,
@@ -25,7 +25,7 @@ export function TrainPhaseScreen({
       <div className="choice-card">
         <p className="choice-title">Kui oled kindel, vali faas</p>
         <p className="muted">
-          {groupName}: valitud faas algab sellest kalendrinädalast. Edasi jookseb ring kalendri
+          {planName}: valitud faas algab sellest kalendrinädalast. Edasi jookseb ring kalendri
           järgi.
         </p>
       </div>

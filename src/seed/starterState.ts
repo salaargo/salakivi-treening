@@ -22,21 +22,15 @@ function mondayKey(d = new Date()): string {
 }
 
 /**
- * Salakivi / Argo valmis algmall.
- * Iga uus kasutaja saab sellest isikliku koopia (uued ID-d, tühjad logid).
- * Kasutaja saab hiljem Seadetes kõike ise muuta või juurde luua.
+ * Salakivi / Argo valmis algmall — otse treeningkavad (gruppe pole).
+ * Esmaspäev = Tõuke, kolmapäev = Tõmme, reede = Jalad + core.
  */
 export function createStarterState(): AppState {
   const cycleStartDate = mondayKey()
 
-  const groupPush = { id: id('group'), name: 'Tõuke', cycleStartDate }
-  const groupPull = { id: id('group'), name: 'Tõmme', cycleStartDate }
-  const groupLegs = { id: id('group'), name: 'Jalad + core', cycleStartDate }
-
-  const planA = {
+  const planPush = {
     id: id('plan'),
-    name: 'Tõuke kava',
-    groupId: groupPush.id,
+    name: 'Tõuke',
     exercises: [
       withDefaultMachine('Kükk', 60, DEFAULT_REST_SECONDS, id('ex')),
       withDefaultMachine('Pingipress', 40, DEFAULT_REST_SECONDS, id('ex')),
@@ -45,10 +39,9 @@ export function createStarterState(): AppState {
     ],
   }
 
-  const planB = {
+  const planPull = {
     id: id('plan'),
-    name: 'Tõmme kava',
-    groupId: groupPull.id,
+    name: 'Tõmme',
     exercises: [
       withDefaultMachine('Maastõste', 70, DEFAULT_REST_SECONDS, id('ex')),
       withDefaultMachine('Rida (hantel)', 22.5, DEFAULT_REST_SECONDS, id('ex')),
@@ -57,10 +50,9 @@ export function createStarterState(): AppState {
     ],
   }
 
-  const planC = {
+  const planLegs = {
     id: id('plan'),
-    name: 'Jalad kava',
-    groupId: groupLegs.id,
+    name: 'Jalad + core',
     exercises: [
       withDefaultMachine('Jalgade press', 80, DEFAULT_REST_SECONDS, id('ex')),
       withDefaultMachine('Rumeenia maastõste', 50, DEFAULT_REST_SECONDS, id('ex')),
@@ -70,23 +62,23 @@ export function createStarterState(): AppState {
   }
 
   const week1Days = emptyDays()
-  week1Days[1] = groupPush.id
-  week1Days[3] = groupPull.id
-  week1Days[5] = groupLegs.id
+  week1Days[1] = planPush.id
+  week1Days[3] = planPull.id
+  week1Days[5] = planLegs.id
 
   const week2Days = emptyDays()
-  week2Days[1] = groupPull.id
-  week2Days[3] = groupPush.id
-  week2Days[5] = groupLegs.id
+  week2Days[1] = planPull.id
+  week2Days[3] = planPush.id
+  week2Days[5] = planLegs.id
 
   return {
     phases: DEFAULT_PHASES.map((p) => ({ ...p })),
-    groups: [groupPush, groupPull, groupLegs],
-    plans: [planA, planB, planC],
+    plans: [planPush, planPull, planLegs],
     weeks: [
       { id: id('week'), name: 'Nädal 1', days: week1Days },
       { id: id('week'), name: 'Nädal 2', days: week2Days },
     ],
     logs: {},
+    cycleStartDate,
   }
 }
