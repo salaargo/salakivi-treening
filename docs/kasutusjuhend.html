@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="et">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Salakivi Treening — kasutusjuhend</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      @page {
+        size: A4;
+        margin: 16mm 15mm 18mm 15mm;
+      }
+
+      @page:first {
+        margin: 0;
+        background: #12140f;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f4f1e6;
+        color: #161910;
+        font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+        font-size: 10.5pt;
+        line-height: 1.45;
+      }
+
+      h1,
+      h2,
+      .cover-brand {
+        font-family: 'Bebas Neue', 'Arial Narrow', sans-serif;
+        font-weight: 400;
+        letter-spacing: 0.02em;
+      }
+
+      a {
+        color: #3d5a12;
+      }
+
+      .cover {
+        page-break-after: always;
+        min-height: 297mm;
+        width: 210mm;
+        margin: 0;
+        padding: 32mm 20mm 26mm;
+        background:
+          radial-gradient(120% 70% at 8% -8%, #334022 0%, transparent 52%),
+          radial-gradient(80% 50% at 100% 0%, #243018 0%, transparent 48%),
+          #12140f;
+        color: #f2f0e8;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .cover-eyebrow {
+        margin: 0;
+        color: #c8f255;
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        font-size: 11pt;
+        font-weight: 600;
+      }
+
+      .cover-brand {
+        margin: 10px 0 0;
+        font-size: 86pt;
+        line-height: 0.86;
+      }
+
+      .cover-sub {
+        margin: 18px 0 0;
+        font-size: 16pt;
+        color: #c8f255;
+        font-weight: 600;
+      }
+
+      .cover-lead {
+        max-width: 138mm;
+        color: #c5cbb8;
+        font-size: 12pt;
+        line-height: 1.5;
+      }
+
+      .cover-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        border-top: 1px solid #3a4530;
+        padding-top: 14px;
+        color: #9aa38c;
+        font-size: 9.5pt;
+      }
+
+      .cover-meta strong {
+        color: #c8f255;
+        font-weight: 600;
+      }
+
+      .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        border-bottom: 2px solid #c8f255;
+        padding-bottom: 6px;
+        margin: 0 0 14px;
+      }
+
+      .page-header span {
+        font-size: 8.5pt;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #5c664c;
+        font-weight: 600;
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        font-size: 26pt;
+        line-height: 1;
+        color: #12140f;
+      }
+
+      h3 {
+        margin: 16px 0 6px;
+        font-size: 12.5pt;
+        color: #1c2410;
+      }
+
+      p {
+        margin: 0 0 8px;
+      }
+
+      ol,
+      ul {
+        margin: 0 0 10px;
+        padding-left: 18px;
+      }
+
+      li {
+        margin: 0 0 4px;
+      }
+
+      .toc {
+        page-break-after: always;
+      }
+
+      .toc ol {
+        list-style: none;
+        padding: 0;
+        margin: 10px 0 0;
+      }
+
+      .toc li {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 0;
+        border-bottom: 1px dotted #c9c3ae;
+      }
+
+      .toc .n {
+        color: #6a7340;
+        font-weight: 700;
+        width: 22px;
+      }
+
+      .toc .t {
+        flex: 1;
+        font-weight: 600;
+      }
+
+      .toc .p {
+        color: #7a836c;
+      }
+
+      .section {
+        page-break-inside: avoid;
+        margin-bottom: 8px;
+      }
+
+      .break {
+        page-break-before: always;
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 14px;
+        margin: 8px 0 12px;
+      }
+
+      .card {
+        background: #fffdf6;
+        border: 1px solid #ddd6c2;
+        border-radius: 10px;
+        padding: 10px 12px;
+      }
+
+      .card h3 {
+        margin-top: 0;
+      }
+
+      .callout {
+        background: #eef6c8;
+        border-left: 5px solid #c8f255;
+        border-radius: 0 8px 8px 0;
+        padding: 9px 12px;
+        margin: 10px 0 12px;
+      }
+
+      .warn {
+        background: #ffe8e4;
+        border-left-color: #ff7a6e;
+      }
+
+      .callout p:last-child,
+      .card p:last-child {
+        margin-bottom: 0;
+      }
+
+      .steps {
+        counter-reset: step;
+        list-style: none;
+        padding: 0;
+      }
+
+      .steps li {
+        counter-increment: step;
+        position: relative;
+        padding: 7px 0 7px 36px;
+        border-bottom: 1px solid #ece6d4;
+      }
+
+      .steps li::before {
+        content: counter(step);
+        position: absolute;
+        left: 0;
+        top: 6px;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #12140f;
+        color: #c8f255;
+        font-size: 9.5pt;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 22px;
+        text-align: center;
+      }
+
+      kbd,
+      .btn {
+        display: inline-block;
+        font-family: inherit;
+        font-size: 8.8pt;
+        font-weight: 700;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: #12140f;
+        color: #c8f255;
+        letter-spacing: 0.02em;
+      }
+
+      .btn.yellow {
+        background: #f5e06a;
+        color: #2a2408;
+      }
+
+      .btn.red {
+        background: #ff7a6e;
+        color: #3a0d09;
+      }
+
+      .btn.ghost {
+        background: #ece6d4;
+        color: #161910;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 8px 0 12px;
+        font-size: 10pt;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 6px 8px;
+        border-bottom: 1px solid #ddd6c2;
+        vertical-align: top;
+      }
+
+      th {
+        background: #12140f;
+        color: #c8f255;
+        font-size: 8.5pt;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 6px 0 10px;
+      }
+
+      .pill {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 9pt;
+        font-weight: 700;
+        color: #111;
+      }
+
+      .pill.start {
+        background: #4ade80;
+      }
+      .pill.treening {
+        background: #fb923c;
+      }
+      .pill.power {
+        background: #f87171;
+      }
+      .pill.taastus {
+        background: #60a5fa;
+      }
+
+      .footer-note {
+        margin-top: 18px;
+        font-size: 9pt;
+        color: #6d7660;
+      }
+    </style>
+  </head>
+  <body>
+    <section class="cover">
+      <div>
+        <p class="cover-eyebrow">Salakivi</p>
+        <h1 class="cover-brand">Treening</h1>
+        <p class="cover-sub">Kasutusjuhend</p>
+        <p class="cover-lead">
+          Kuidas telefonis treenida: konto, nädal, harjutused, pausid, nutikell ja seaded. Mõeldud
+          treenijale — mitte arendajale.
+        </p>
+      </div>
+      <div class="cover-meta">
+        <div>
+          Äpp<br />
+          <strong>salaargo.github.io/salakivi-treening</strong>
+        </div>
+        <div>
+          Versioon<br />
+          <strong>september 2026</strong>
+        </div>
+      </div>
+    </section>
+
+    <section class="toc">
+      <div class="page-header">
+        <span>Salakivi Treening</span>
+        <span>Kasutusjuhend</span>
+      </div>
+      <h2>Sisukord</h2>
+      <ol>
+        <li><span class="n">1</span><span class="t">Mis see on ja kuidas avada</span></li>
+        <li><span class="n">2</span><span class="t">Konto: registreeru ja logi sisse</span></li>
+        <li><span class="n">3</span><span class="t">Avaleht</span></li>
+        <li><span class="n">4</span><span class="t">Treeningu alustamine</span></li>
+        <li><span class="n">5</span><span class="t">Treeningu tegemine</span></li>
+        <li><span class="n">6</span><span class="t">STOPP ja Sauna</span></li>
+        <li><span class="n">7</span><span class="t">Seaded: kavad, nädal, faasid</span></li>
+        <li><span class="n">8</span><span class="t">Nutikell</span></li>
+        <li><span class="n">9</span><span class="t">Admin (Argo)</span></li>
+        <li><span class="n">10</span><span class="t">Kui miski ei tööta</span></li>
+      </ol>
+      <div class="callout">
+        <p>
+          <strong>Lühike tee tänasesse trenni:</strong> ava link → logi sisse →
+          <span class="btn">Treenima</span> → <span class="btn">Jätka treeningut</span> → vali
+          tänane päev → vali harjutus → <span class="btn">Start</span> →
+          <span class="btn yellow">Tehtud</span>.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <div class="page-header">
+        <span>Salakivi Treening</span>
+        <span>1–2</span>
+      </div>
+      <h2>1. Mis see on</h2>
+      <p>
+        Salakivi Treening on telefonile mõeldud treeningäpp. Igal kasutajal on oma konto: kavad,
+        nädalapäevad ja treeninglogid salvestuvad pilve. Uus kasutaja saab Argo praegused kavad
+        näidiseks (ilma Argo logideta).
+      </p>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Ava telefonis</h3>
+          <p>
+            Brauseris:
+            <strong>https://salaargo.github.io/salakivi-treening/</strong>
+          </p>
+          <p>Hoia telefon püstiasendis. Põiki keerates palub äpp telefon pöörata.</p>
+        </div>
+        <div class="card">
+          <h3>Lisa avalehele</h3>
+          <p>
+            Androidis: brauseri menüü → <strong>Lisa avalehele</strong> / Installi äpp. Siis avaneb
+            see nagu tavaline rakendus.
+          </p>
+        </div>
+      </div>
+
+      <h2>2. Konto</h2>
+      <ol class="steps">
+        <li>Ava äpp. Esimesel korral näed sisselogimist.</li>
+        <li>Vali <span class="btn">Loo konto</span>.</li>
+        <li>
+          Sisesta <strong>nimi</strong> (see tuleb avalehele, nt „Tere, Ardo“), e-post ja parool
+          (vähemalt 6 märki).
+        </li>
+        <li>Kui kinnitusmeil on sisse lülitatud, kinnita postkastis. Siis logi sisse.</li>
+        <li>Kui konto juba on, vali <span class="btn">Logi sisse</span>.</li>
+      </ol>
+      <p>
+        Unustatud parool: sisselogimisel <em>Unustasid parooli?</em> — saad lingi e-posti. Nime saab
+        hiljem muuta Seadetes.
+      </p>
+      <div class="callout">
+        <p>
+          Ära kustuta kontot selleks, et saada Argo kavu. Olemasolevale kasutajale saab admin anda
+          näidiskava Seadetes nupuga <span class="btn">Anna näidiskava</span>.
+        </p>
+      </div>
+    </section>
+
+    <section class="break">
+      <div class="page-header">
+        <span>Salakivi Treening</span>
+        <span>3–4</span>
+      </div>
+      <h2>3. Avaleht</h2>
+      <p>Pärast sisselogimist näed nime, aktiivset kava ja faasi.</p>
+      <ul>
+        <li><span class="btn">Treenima</span> — tänase nädala ja treeningu juurde.</li>
+        <li><span class="btn ghost">Seaded</span> — kavad, nädal, faasid, nimi, kell, väljalogimine.</li>
+      </ul>
+      <p>
+        Faasi rida (nt „2 nädalat · 6–8 kordust · baasraskus“) ütleb, mitu kordust ja millise
+        raskusega selles tsükli osas treenida.
+      </p>
+
+      <h2>4. Treeningu alustamine</h2>
+      <ol class="steps">
+        <li>Avalehelt <span class="btn">Treenima</span>.</li>
+        <li>
+          Tavaliselt <span class="btn">Jätka treeningut</span> — kalender jookseb edasi praeguse
+          faasiga.
+        </li>
+        <li>
+          <span class="btn ghost">Alustame uut faasi</span> ainult siis, kui tahad tsükli käsitsi
+          uuesti paika panna. Valitud faas algab <strong>sellest kalendrinädalast</strong>.
+        </li>
+        <li>
+          Nädala vaates vali päev. Tänane on esile tõstetud. Puhkepäeval nuppu pole.
+        </li>
+      </ol>
+      <div class="card">
+        <h3>Nädala märgid</h3>
+        <p><strong>Tehtud</strong> — selle päeva treening on lõpuni tehtud.</p>
+        <p><strong>Tegemata jäi</strong> — treening lõpetati enne kõiki harjutusi (STOPP).</p>
+        <p>Nooltega ‹ › liigud nädalate vahel. <span class="btn ghost">Tänane nädal</span> toob tagasi.</p>
+      </div>
+    </section>
+
+    <section class="break">
+      <div class="page-header">
+        <span>Salakivi Treening</span>
+        <span>5</span>
+      </div>
+      <h2>5. Treeningu tegemine</h2>
+      <h3>Harjutuse valik</h3>
+      <p>
+        Vali üks harjutus või kaks (segamini). Üleval paremal ilmub
+        <span class="btn">Start</span>.
+      </p>
+      <div class="callout">
+        <p>
+          <strong>Segamini (kaks harjutust):</strong> teed kordamööda. Paus tuleb
+          <em>ainult pärast teist</em> harjutust, enne esimese järgmist seeriat. Taimeril on kirjas,
+          mitu seeriat veel jäänud on. Kui ühe harjutuse seeriad saavad otsa, avaneb kohe valik —
+          ilma taimerita.
+        </p>
+      </div>
+
+      <h3>Seeria</h3>
+      <ol class="steps">
+        <li>
+          <span class="btn">Start</span> alustab seeriat. (Hoia Starti all, kui tahad hüpata teisele
+          seerianumbrile.)
+        </li>
+        <li>
+          Vali <strong>pink</strong> ja <strong>raskus (kg)</strong>. Esimesel seerial valitu läheb
+          automaatselt ka järgmistesse tegemata seeriatesse.
+        </li>
+        <li>Tee kordused faasi vahemikus (nt Start: 6–8).</li>
+        <li>
+          Suur kollane <span class="btn yellow">Tehtud</span> ekraani allosas märgib seeria tehtuks.
+        </li>
+        <li>Pausi ajal oota taimerit või jäta paus vahele.</li>
+      </ol>
+      <p>
+        <span class="btn ghost">Lõpeta harjutus</span> lõpetab varem (nt 3 seeriat 4 asemel). See
+        harjutus märgitakse tehtuks; ülejäänud seeriad jäävad tegemata.
+      </p>
+      <p>Kui kõik harjutused on tehtud, mine <span class="btn">Lõpeta → Sauna!</span></p>
+    </section>
+
+    <section class="break">
+      <div class="page-header">
+        <span>Salakivi Treening</span>
+        <span>6–7</span>
+      </div>
+      <h2>6. STOPP ja Sauna</h2>
+      <p>
+        Ekraani nurgas on <span class="btn red">STOPP</span>. See lõpetab <strong>kogu tänase
+        treeningu</strong>, mitte ainult ühe harjutuse. Kinnitus: OK või Cancel.
+      </p>
+      <p>
+        Lõpus on <strong>Sauna!</strong> (või <strong>Peatatud</strong>, kui jäid harjutusi
+        vahele). Näed kogu aega, harjutuste aega ja pause. <span class="btn">Valmis</span> viib
+        avalehele. Nädalavaates jäävad tegemata harjutused punaseks.
+      </p>
+
+      <h2>7. Seaded</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Nimi</h3>
+          <p>
+            Väli „Nimi avalehel“ → <span class="btn ghost">Salvesta nimi</span>. See ei muuda
+            e-posti aadressi.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Treeningkavad</h3>
+          <p>
+            Ava kava (nt Tõuke). Muuda nime, harjutusi, seeriate arvu, pausi ja pinke. <em>+ Lisa
+            pink</em> lisab teise treenažööri sama harjutuse alla.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Nädala mall</h3>
+          <p>
+            Iga nädalapäevale vali kava või jäta puhkepäev. Vahelduvad mallid väljas = iga nädal sama
+            päevade jaotus; sees = mallid kordamööda.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Faasid</h3>
+          <div class="pills">
+            <span class="pill start">Start</span>
+            <span class="pill treening">Treening</span>
+            <span class="pill power">Power</span>
+            <span class="pill taastus">Taastus</span>
+          </div>
+          <p>
+            Faas määrab nädalate arvu, korduste vahemiku ja raskuse kordaja (baasraskusest). Ring
+            jookseb kalendri järgi.
+          </p>
+        </div>
+      </div>
+      <p>Kõik muudatused salvestuvad pilve umbes sekundiga. Teises telefonis logi samasse kontosse.</p>
+    </section>
+
+    <section class="break">
+      <div class="page-header">
+        <span>Salakivi Treening</span>
+        <span>8–10</span>
+      </div>
+      <h2>8. Nutikell</h2>
+      <ol class="steps">
+        <li>Seaded → <span class="btn ghost">Ava kellavaade</span> (või kopeeri kellalink).</li>
+        <li>Ava link kella brauseris (Wear OS / Samsung Galaxy Watch).</li>
+        <li>Logi kellas samasse kontosse.</li>
+      </ol>
+      <p>
+        Siis saab kell juhtida telefonis käivat treeningut: Start, Tehtud, pausi vahelejätmine.
+        Apple Watchi brauser on piiratud — seal ava sama link või treeni kellavaates otse.
+      </p>
+
+      <h2>9. Admin (Argo)</h2>
+      <p>Konto <strong>salaargo@gmail.com</strong> näeb Seadete ülaosas Admin plokki:</p>
+      <ul>
+        <li>registreerunud kasutajad: nimi, e-post, viimane kasutus;</li>
+        <li><span class="btn ghost">Avalda kavad näidiseks nüüd</span> — uued kasutajad saavad need kavad;</li>
+        <li>
+          <span class="btn ghost">Anna näidiskava</span> olemasolevale kasutajale — kavad kirjutatakse
+          üle, logid jäävad.
+        </li>
+      </ul>
+      <p>Sinu salvestused uuendavad näidiskava ka automaatselt.</p>
+
+      <h2>10. Kui miski ei tööta</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Olukord</th>
+            <th>Mida teha</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Avalehel pole nime</td>
+            <td>Seaded → sisesta nimi → Salvesta nimi. Värskenda lehte.</td>
+          </tr>
+          <tr>
+            <td>Kavad pole nagu Argol</td>
+            <td>Uus konto saab need ise. Vana konto: palu Argol anda näidiskava. Ära kustuta kontot.</td>
+          </tr>
+          <tr>
+            <td>„Pilve salvestamine ebaõnnestus“</td>
+            <td>Kontrolli internetti. Logi välja ja uuesti sisse.</td>
+          </tr>
+          <tr>
+            <td>Teine telefon näitab vana kava</td>
+            <td>Logi samasse kontosse. Vajadusel värskenda (tõmba lehte alla / ava uuesti).</td>
+          </tr>
+          <tr>
+            <td>Kell ei juhi telefoni</td>
+            <td>Sama konto mõlemas, kellalink <em>?kell=1</em>, treening juba telefonis käimas.</td>
+          </tr>
+          <tr>
+            <td>Ekraan on põiki</td>
+            <td>Pööra telefon püsti. Kellavaates seda lukku ei ole.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="footer-note">
+        Salakivi Treening · kasutusjuhend · september 2026 ·
+        https://salaargo.github.io/salakivi-treening/
+      </p>
+    </section>
+  </body>
+</html>

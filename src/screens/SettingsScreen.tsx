@@ -745,6 +745,19 @@ export function SettingsScreen({
       {isAdmin && <AdminUsersPanel state={state} adminUserId={userId} />}
 
       <section className="settings-block">
+        <h3>Abi</h3>
+        <p className="muted small">Kuidas treenida, seadeid muuta ja kella kasutada.</p>
+        <a
+          className="btn btn-secondary full"
+          href={`${import.meta.env.BASE_URL}Salakivi-Treening-kasutusjuhend.pdf`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Kasutusjuhend (PDF)
+        </a>
+      </section>
+
+      <section className="settings-block">
         <h3>Nutikell</h3>
         <p className="muted small">
           Wear OS / Samsung Galaxy Watch: ava kellas brauseris kellavaade (suured nupud). Kui oled

@@ -2,6 +2,8 @@
 
 Mobiilile orienteeritud treeningäpp. Ilma `.env` failita töötab kohaliku `localStorage`’iga; pilve jaoks on **Supabase** (vt `JUHEND.md`).
 
+**Kasutusjuhend (PDF):** [docs/Salakivi-Treening-kasutusjuhend.pdf](./docs/Salakivi-Treening-kasutusjuhend.pdf) — äpis ka Seaded → Kasutusjuhend. Pärast GitHub Pages deploy’t: https://salaargo.github.io/salakivi-treening/Salakivi-Treening-kasutusjuhend.pdf
+
 ## Käivitamine
 
 ```bash

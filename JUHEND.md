@@ -127,7 +127,7 @@ Ava `http://localhost:5173` (telefon samas WiFis: arvuti IP + port 5173).
 1. Ava Renderi link telefonis või arvutis
 2. **Loo konto** või **Logi sisse**
 3. **Treenima** → vali päev → tee treening
-4. **Seaded** → kavad, grupid, faasid, nädalamallid
+4. **Seaded** → kavad, faasid, nädalamallid, **Kasutusjuhend (PDF)**
 5. Treeningu lõpus **Sauna!** + statistika → **Valmis** (tagasi avalehele)
 6. **Seaded** → **Logi välja** (teine kasutaja saab oma kontoga sisse logida)
 
