@@ -1,52 +1,5 @@
--- Salakivi Treening — Supabase skeem
--- Käivita Supabase SQL Editoris (üks kord projekti kohta).
-
-create table if not exists public.user_app_state (
-  user_id uuid primary key references auth.users (id) on delete cascade,
-  state jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
-
-create or replace function public.set_user_app_state_updated_at()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
-
-drop trigger if exists user_app_state_updated_at on public.user_app_state;
-create trigger user_app_state_updated_at
-before update on public.user_app_state
-for each row
-execute function public.set_user_app_state_updated_at();
-
-alter table public.user_app_state enable row level security;
-
-drop policy if exists "Users read own state" on public.user_app_state;
-create policy "Users read own state"
-  on public.user_app_state
-  for select
-  using (auth.uid() = user_id);
-
-drop policy if exists "Users insert own state" on public.user_app_state;
-create policy "Users insert own state"
-  on public.user_app_state
-  for insert
-  with check (auth.uid() = user_id);
-
-drop policy if exists "Users update own state" on public.user_app_state;
-create policy "Users update own state"
-  on public.user_app_state
-  for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
--- ---------------------------------------------------------------------------
--- Admin + näidiskava (uued kasutajad saavad Argo kavad)
--- ---------------------------------------------------------------------------
+-- Salakivi Treening — admin + näidiskava olemasolevale projektile
+-- Käivita Supabase → SQL Editor → Run (üks kord; ohutu uuesti käivitada).
 
 create or replace function public.is_salakivi_admin()
 returns boolean
@@ -55,6 +8,8 @@ stable
 as $$
   select lower(coalesce(auth.jwt() ->> 'email', '')) in ('salaargo@gmail.com');
 $$;
+
+grant execute on function public.is_salakivi_admin() to authenticated;
 
 create table if not exists public.profiles (
   user_id uuid primary key references auth.users (id) on delete cascade,
@@ -141,9 +96,7 @@ create policy "Admin update program template"
 
 grant select, insert, update on public.profiles to authenticated;
 grant select, insert, update on public.program_template to authenticated;
-grant execute on function public.is_salakivi_admin() to authenticated;
 
--- Olemasolevad kontod nimekirja
 insert into public.profiles (user_id, email, created_at, last_seen_at)
 select
   u.id,
@@ -157,7 +110,6 @@ on conflict (user_id) do update
     email = excluded.email,
     last_seen_at = greatest(public.profiles.last_seen_at, excluded.last_seen_at);
 
--- Argo praegused kavad näidiseks (logideta), kui tal on juba pilveandmed
 insert into public.program_template (id, state, updated_by)
 select
   1,

@@ -38,10 +38,12 @@ salakivi-treening/
 ### 1.2 Käivita SQL
 
 1. Supabase → **SQL Editor** → **New query**
-2. Kopeeri kogu fail `supabase/schema.sql` sisu
+2. Kopeeri kogu fail `supabase/schema.sql` sisu (või olemasoleva projekti korral `supabase/migration_admin.sql`)
 3. **Run**
 
-See loob tabeli `user_app_state` ja reeglid (RLS), et iga kasutaja näeb **ainult oma** andmeid.
+See loob tabeli `user_app_state`, näidiskava (`program_template`), kasutajate nimekirja (`profiles`) ja reeglid (RLS), et iga kasutaja näeb **ainult oma** treeninguandmeid. Admin (Argo) näeb Seadetes registreerunud kasutajaid.
+
+Kui äpp juba töötab: käivita **`supabase/migration_admin.sql`**, muidu uued kasutajad ei saa näidiskava ja admini nimekiri on tühi.
 
 ### 1.3 Võtmed
 

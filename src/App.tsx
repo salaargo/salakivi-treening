@@ -11,6 +11,7 @@ import {
   todayKey,
 } from './storage'
 import { isCloudEnabled, loadCloudState, saveCloudState } from './cloud/sync'
+import { isAdminEmail } from './admin'
 import { getSupabase } from './lib/supabase'
 import { HomeScreen } from './screens/HomeScreen'
 import { AuthScreen } from './screens/AuthScreen'
@@ -330,6 +331,7 @@ export default function App() {
               onBack={() => setScreen({ name: 'home' })}
               userEmail={cloud ? userEmail : undefined}
               onLogout={cloud ? () => void handleLogout() : undefined}
+              isAdmin={cloud && isAdminEmail(userEmail)}
             />
           )}
         </>

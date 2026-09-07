@@ -1049,6 +1049,41 @@ select:focus {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 
+.admin-block {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.admin-count {
+  margin: 0;
+}
+
+.user-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.user-row {
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+}
+
+.user-row p {
+  margin: 0.15rem 0 0;
+}
+
+.user-row .plan-name {
+  margin: 0;
+}
+
+.user-email {
+  word-break: break-all;
+}
+
 .toggle-row {
   display: flex;
   align-items: flex-start;

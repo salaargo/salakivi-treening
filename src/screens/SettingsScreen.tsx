@@ -18,6 +18,7 @@ import {
 import { createMachine, withDefaultMachine } from '../exercises'
 import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
 import { watchUrl } from '../orientation'
+import { AdminUsersPanel } from './AdminUsersPanel'
 
 interface SettingsScreenProps {
   state: AppState
@@ -25,13 +26,21 @@ interface SettingsScreenProps {
   onBack: () => void
   userEmail?: string
   onLogout?: () => void
+  isAdmin?: boolean
 }
 
 function newId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }: SettingsScreenProps) {
+export function SettingsScreen({
+  state,
+  onChange,
+  onBack,
+  userEmail,
+  onLogout,
+  isAdmin = false,
+}: SettingsScreenProps) {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null)
   const [editingPhaseId, setEditingPhaseId] = useState<PhaseId | null>(null)
@@ -697,6 +706,8 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
         </button>
         <h2>Seaded</h2>
       </header>
+
+      {isAdmin && <AdminUsersPanel state={state} />}
 
       <section className="settings-block">
         <h3>Nutikell</h3>
