@@ -4,6 +4,8 @@ interface RestTimerProps {
   seconds: number
   onComplete: () => void
   onSkip?: () => void
+  remainingHint?: string
+  nextHint?: string
 }
 
 function vibrate() {
@@ -14,7 +16,7 @@ function vibrate() {
   }
 }
 
-export function RestTimer({ seconds, onComplete, onSkip }: RestTimerProps) {
+export function RestTimer({ seconds, onComplete, onSkip, remainingHint, nextHint }: RestTimerProps) {
   const [left, setLeft] = useState(seconds)
   const finishedRef = useRef(false)
   const onCompleteRef = useRef(onComplete)
@@ -57,6 +59,8 @@ export function RestTimer({ seconds, onComplete, onSkip }: RestTimerProps) {
             </span>
           </div>
         </div>
+        {remainingHint && <p className="timer-remaining">{remainingHint}</p>}
+        {nextHint && <p className="muted small timer-next">{nextHint}</p>}
         <div className="timer-actions">
           <button type="button" className="btn btn-ghost" onClick={() => setLeft((v) => v + 15)}>
             +15s

@@ -1177,6 +1177,112 @@ select:focus {
   flex: 1;
 }
 
+.timer-remaining {
+  margin: 0;
+  text-align: center;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.timer-next {
+  margin: 0;
+  text-align: center;
+}
+
+.tehtud-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem 0 calc(0.35rem + var(--safe-bottom));
+  background: linear-gradient(transparent, var(--bg) 28%);
+}
+
+.btn-tehtud-lg {
+  width: 100%;
+  min-height: 76px;
+  border-radius: 22px;
+  background: #f5e06a;
+  color: #2a2408;
+  font-size: 1.55rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  user-select: none;
+  touch-action: none;
+}
+
+a.btn {
+  text-decoration: none;
+  color: inherit;
+}
+
+.rotate-lock {
+  display: none;
+}
+
+.watch-remote {
+  gap: 0.75rem;
+}
+
+.watch-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 2rem;
+}
+
+.watch-clock {
+  margin: 0.4rem 0;
+  font-family: var(--display);
+  font-size: 3.4rem;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.watch-set {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.watch-mode .app-shell,
+.watch-mode {
+  max-width: 100%;
+}
+
+.watch-mode .brand {
+  font-size: 2.4rem;
+}
+
+.home-screen.is-compact .home-hero {
+  padding-top: 0.4rem;
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .rotate-lock {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(8, 10, 6, 0.96);
+    text-align: center;
+    padding: 1.5rem;
+  }
+
+  .watch-mode .rotate-lock {
+    display: none;
+  }
+}
+
+.rotate-lock-title {
+  margin: 0 0 0.4rem;
+  font-family: var(--display);
+  font-size: 2rem;
+}
+
 @media (min-width: 480px) {
   body {
     background-color: #0b0d09;

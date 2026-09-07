@@ -10,6 +10,9 @@ import {
 import { createMachine, exerciseRounds, getMachine, getPrimaryMachine } from '../exercises'
 import { suggestedWeight } from '../phases'
 import { RestTimer } from '../components/RestTimer'
+import { afterSetAction } from '../workoutFlow'
+import { publishSnapshot, subscribeCommands, type LiveCommand } from '../live/remote'
+import { isWatchMode } from '../orientation'
 
 interface WorkoutScreenProps {
   state: AppState
@@ -19,6 +22,7 @@ interface WorkoutScreenProps {
   onUpdateLog: (log: DayLog) => void
   onChangeState: (next: AppState) => void
   onRegisterLiveLog?: (getter: (() => DayLog | null) | null) => void
+  compact?: boolean
 }
 
 interface AddPinkForm {
@@ -45,10 +49,7 @@ function buildExerciseLog(ex: ExerciseTemplate, phase: AppState['phases'][number
 
 function logMatchesExercises(existing: DayLog, exercises: ExerciseTemplate[]): boolean {
   if (existing.exercises.length !== exercises.length) return false
-  return exercises.every((ex, index) => {
-    const logged = existing.exercises[index]
-    return logged?.exerciseId === ex.id && logged.sets.length === exerciseRounds(ex)
-  })
+  return exercises.every((ex, index) => existing.exercises[index]?.exerciseId === ex.id)
 }
 
 function findExerciseLog(log: DayLog, exerciseId: string): ExerciseLog | undefined {
@@ -87,8 +88,10 @@ function completedCount(log: DayLog, exerciseId: string): number {
 }
 
 function isExerciseDone(log: DayLog, exerciseId: string): boolean {
-  const sets = findExerciseLog(log, exerciseId)?.sets
-  return Boolean(sets?.length && sets.every((s) => s.completed))
+  const entry = findExerciseLog(log, exerciseId)
+  if (!entry) return false
+  if (entry.finishedEarly) return true
+  return Boolean(entry.sets.length && entry.sets.every((s) => s.completed))
 }
 
 function allExercisesDone(log: DayLog, exercises: ExerciseTemplate[]): boolean {
@@ -120,6 +123,26 @@ function nextIncompleteSet(log: DayLog, exerciseId: string): number {
   return idx === -1 ? sets.length : idx
 }
 
+function remainingSetsHint(
+  log: DayLog,
+  items: { id: string; name: string }[],
+): string {
+  const parts = items
+    .map((ex) => {
+      if (isExerciseDone(log, ex.id)) return null
+      const left = findExerciseLog(log, ex.id)?.sets.filter((s) => !s.completed).length ?? 0
+      return left > 0 ? { name: ex.name, left } : null
+    })
+    .filter((part): part is { name: string; left: number } => part !== null)
+
+  if (parts.length === 0) return 'Seeriad tehtud'
+  if (parts.length === 1) {
+    const n = parts[0].left
+    return n === 1 ? 'Veel 1 seeria' : `Veel ${n} seeriat`
+  }
+  return `Veel seeriaid: ${parts.map((p) => `${p.name} ${p.left}`).join(' · ')}`
+}
+
 export function WorkoutScreen({
   state,
   dateKey,
@@ -128,13 +151,17 @@ export function WorkoutScreen({
   onUpdateLog,
   onChangeState,
   onRegisterLiveLog,
+  compact = false,
 }: WorkoutScreenProps) {
   const date = parseDateKey(dateKey)
   const weekday = date.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6
   const plan = getPlanForDate(state, dateKey)
   const progress = plan ? getPhaseProgress(state, dateKey) : null
   const phase = progress?.phase ?? null
-  const liveExercises = plan ? getExercisesForPlan(state, plan.id) : []
+  const liveExercises = useMemo(
+    () => (plan ? getExercisesForPlan(state, plan.id) : []),
+    [state, plan],
+  )
 
   const [log, setLog] = useState<DayLog | null>(() => buildInitialLog(state, dateKey))
   const [flow, setFlow] = useState<Flow>(() => {
@@ -149,6 +176,9 @@ export function WorkoutScreen({
   const [selected, setSelected] = useState<number[]>([])
   const [activeSlot, setActiveSlot] = useState(0)
   const [restSeconds, setRestSeconds] = useState(60)
+  const [restHint, setRestHint] = useState('')
+  const [restNext, setRestNext] = useState('')
+  const [restEndsAt, setRestEndsAt] = useState<number | null>(null)
   const [showSetMenu, setShowSetMenu] = useState(false)
   const [addPink, setAddPink] = useState<AddPinkForm | null>(null)
 
@@ -163,6 +193,13 @@ export function WorkoutScreen({
   const lastTehtudAt = useRef<number | null>(null)
   const workMsAcc = useRef(log?.workMs ?? 0)
   const restMsAcc = useRef(log?.restMs ?? 0)
+  const commandRef = useRef({
+    flow: 'pick' as Flow,
+    onStart: () => {},
+    onTehtud: () => {},
+    onSkipRest: () => {},
+    onFinishEarly: () => {},
+  })
 
   const commitLog = useCallback(
     (next: DayLog) => {
@@ -207,6 +244,7 @@ export function WorkoutScreen({
   }, [state, dateKey, liveExercises, log, commitLog])
 
   const endRest = useCallback(() => {
+    setRestEndsAt(null)
     if (pendingAfterRest.current === 'pick') {
       setSelected([])
       setActiveSlot(0)
@@ -235,6 +273,79 @@ export function WorkoutScreen({
       .map((ex, index) => ({ ex, index }))
       .filter(({ ex }) => !isExerciseDone(log, ex.id))
   }, [log, liveExercises])
+
+  const selectedExercises = useMemo(
+    () =>
+      selected
+        .map((index) => liveExercises[index])
+        .filter((ex): ex is ExerciseTemplate => Boolean(ex)),
+    [selected, liveExercises],
+  )
+
+  useEffect(() => {
+    if (isWatchMode()) return
+    const publish = () => {
+      const other =
+        selected.length === 2 ? liveExercises[selected[activeSlot === 0 ? 1 : 0]] : undefined
+      publishSnapshot({
+        v: 1,
+        at: Date.now(),
+        dateKey,
+        flow,
+        planName: plan?.name,
+        exerciseName: currentEx?.name,
+        otherName: other?.name,
+        setNumber: currentEx ? setNumber : undefined,
+        totalRounds: currentEx ? totalRounds : undefined,
+        remainingHint: log ? remainingSetsHint(log, selectedExercises) : undefined,
+        nextHint: restNext || undefined,
+        restSeconds,
+        restEndsAt: restEndsAt ?? undefined,
+        weightKg: currentSet?.weightKg,
+        machineName: currentMachine?.name,
+      })
+    }
+    publish()
+    const id = window.setInterval(publish, 2000)
+    return () => window.clearInterval(id)
+  }, [
+    flow,
+    dateKey,
+    plan?.name,
+    currentEx,
+    selected,
+    activeSlot,
+    setNumber,
+    totalRounds,
+    log,
+    restSeconds,
+    restEndsAt,
+    restNext,
+    currentSet?.weightKg,
+    currentMachine?.name,
+    liveExercises,
+    selectedExercises,
+  ])
+
+  useEffect(() => {
+    return () => {
+      if (!isWatchMode()) {
+        publishSnapshot({ v: 1, at: Date.now(), dateKey, flow: 'idle' })
+      }
+    }
+  }, [dateKey])
+
+  useEffect(() => {
+    return subscribeCommands((cmd: LiveCommand) => {
+      const handlers = commandRef.current
+      if (cmd.type === 'start' && handlers.flow === 'ready') handlers.onStart()
+      if (cmd.type === 'tehtud' && handlers.flow === 'active') handlers.onTehtud()
+      if (cmd.type === 'skip-rest' && handlers.flow === 'resting') handlers.onSkipRest()
+      if (cmd.type === 'finish-exercise' && (handlers.flow === 'ready' || handlers.flow === 'active')) {
+        handlers.onFinishEarly()
+      }
+    })
+  }, [])
 
   if (!plan || !phase || !progress || !log || !liveExercises.length) {
     return (
@@ -337,18 +448,17 @@ export function WorkoutScreen({
     }
   }
 
-  function markExerciseAllDone(exerciseId: string): DayLog {
-    return {
-      ...dayLog,
-      exercises: dayLog.exercises.map((ex) =>
-        ex.exerciseId !== exerciseId
-          ? ex
-          : {
-              ...ex,
-              sets: ex.sets.map((s) => ({ ...s, completed: true })),
-            },
-      ),
-    }
+  function startRest(pause: number, nextLog: DayLog, nextSlot: number) {
+    const nextEx = liveExercises[selected[nextSlot]]
+    const hint = remainingSetsHint(nextLog, selectedExercises)
+    const nextName = nextEx?.name ?? currentEx?.name ?? ''
+    setRestSeconds(pause)
+    setRestHint(hint)
+    setRestNext(nextName ? `Järgmisena: ${nextName}` : '')
+    setRestEndsAt(Date.now() + pause * 1000)
+    pendingAfterRest.current = 'ready'
+    setActiveSlot(nextSlot)
+    setFlow('resting')
   }
 
   function handleTehtud() {
@@ -358,45 +468,74 @@ export function WorkoutScreen({
     const next = markSetComplete(currentEx.id, setIndex, dayLog)
     const pause = Math.max(0, currentEx.restSeconds)
     const thisDone = isExerciseDone(next, currentEx.id)
+    const otherSlot = activeSlot === 0 ? 1 : 0
+    const otherExercise = selected.length === 2 ? liveExercises[selected[otherSlot]] : undefined
+    const otherStillOpen = otherExercise ? !isExerciseDone(next, otherExercise.id) : false
+    const action = afterSetAction({
+      selectedLength: selected.length,
+      activeSlot,
+      thisDone,
+      otherStillOpen,
+      allDone: allExercisesDone(next, liveExercises),
+    })
 
-    if (allExercisesDone(next, liveExercises)) {
+    if (action.kind === 'sauna') {
       commitLog(withFinishStats(next))
       setFlow('sauna')
       return
     }
 
-    let nextSlot = activeSlot
-    let goPick = false
-
-    if (selected.length === 2) {
-      const otherSlot = activeSlot === 0 ? 1 : 0
-      const otherIndex = selected[otherSlot]
-      const otherExercise = liveExercises[otherIndex]
-      const otherStillOpen = otherExercise ? !isExerciseDone(next, otherExercise.id) : false
-      if (otherStillOpen) {
-        nextSlot = otherSlot
-      } else if (thisDone) {
-        goPick = true
-      }
-    } else if (thisDone) {
-      goPick = true
-    }
-
     commitLog(next)
-    if (goPick) {
-      pendingAfterRest.current = 'pick'
-    } else {
-      setActiveSlot(nextSlot)
-      pendingAfterRest.current = 'ready'
-    }
 
-    if (pause <= 0) {
-      endRest()
+    if (action.kind === 'pick') {
+      setSelected([])
+      setActiveSlot(0)
+      setFlow('pick')
       return
     }
 
-    setRestSeconds(pause)
-    setFlow('resting')
+    if (!action.rest || pause <= 0) {
+      setActiveSlot(action.nextSlot)
+      setFlow('ready')
+      return
+    }
+
+    startRest(pause, next, action.nextSlot)
+  }
+
+  function handleFinishEarly() {
+    if (!currentEx) return
+    if (flow === 'active') recordTehtud()
+    const next: DayLog = {
+      ...dayLog,
+      exercises: dayLog.exercises.map((ex) =>
+        ex.exerciseId !== currentEx.id ? ex : { ...ex, finishedEarly: true },
+      ),
+    }
+
+    if (selected.length === 2) {
+      const other = selected.find((i) => i !== currentExIndex)
+      const otherExercise = other !== undefined ? liveExercises[other] : undefined
+      if (otherExercise && !isExerciseDone(next, otherExercise.id)) {
+        commitLog(next)
+        setSelected([other!])
+        setActiveSlot(0)
+        setShowSetMenu(false)
+        setFlow('ready')
+        return
+      }
+    }
+
+    setShowSetMenu(false)
+    if (allExercisesDone(next, liveExercises)) {
+      commitLog(withFinishStats(next))
+      setFlow('sauna')
+      return
+    }
+    commitLog(next)
+    setSelected([])
+    setActiveSlot(0)
+    setFlow('pick')
   }
 
   function jumpToSet(n: number) {
@@ -415,6 +554,7 @@ export function WorkoutScreen({
                 ...s,
                 completed: i < targetIndex,
               })),
+              finishedEarly: false,
             },
       ),
     }
@@ -424,30 +564,7 @@ export function WorkoutScreen({
   }
 
   function handleAllDone() {
-    if (!currentEx) return
-    recordTehtud()
-    const next = markExerciseAllDone(currentEx.id)
-    if (selected.length === 2) {
-      const other = selected.find((i) => i !== currentExIndex)!
-      const otherExercise = liveExercises[other]
-      if (otherExercise && !isExerciseDone(next, otherExercise.id)) {
-        commitLog(next)
-        setSelected([other])
-        setActiveSlot(0)
-        setShowSetMenu(false)
-        setFlow('ready')
-        return
-      }
-    }
-    setShowSetMenu(false)
-    if (allExercisesDone(next, liveExercises)) {
-      commitLog(withFinishStats(next))
-      setFlow('sauna')
-      return
-    }
-    commitLog(next)
-    setSelected([])
-    setFlow('pick')
+    handleFinishEarly()
   }
 
   function patchSet(exerciseId: string, si: number, patch: Partial<SetLog>) {
@@ -458,7 +575,11 @@ export function WorkoutScreen({
           ? ex
           : {
               ...ex,
-              sets: ex.sets.map((s, i) => (i === si ? { ...s, ...patch } : s)),
+              sets: ex.sets.map((s, i) => {
+                if (i === si) return { ...s, ...patch }
+                if (i > si && !s.completed) return { ...s, ...patch }
+                return s
+              }),
             },
       ),
     }
@@ -514,7 +635,6 @@ export function WorkoutScreen({
     if (longPressFired.current) return
     if (flow === 'ready') {
       recordStart()
-      // Väldi, et sama puudutus vajutaks kohe uuele Tehtud-nupule
       tehtudArmed.current = false
       setFlow('active')
     }
@@ -533,6 +653,14 @@ export function WorkoutScreen({
 
   function onTehtudPointerCancel() {
     tehtudArmed.current = false
+  }
+
+  commandRef.current = {
+    flow,
+    onStart: onStartPointerUp,
+    onTehtud: handleTehtud,
+    onSkipRest: endRest,
+    onFinishEarly: handleFinishEarly,
   }
 
   if (flow === 'sauna') {
@@ -602,7 +730,13 @@ export function WorkoutScreen({
   if (flow === 'resting') {
     return (
       <div className="screen workout-screen">
-        <RestTimer seconds={restSeconds} onComplete={endRest} onSkip={endRest} />
+        <RestTimer
+          seconds={restSeconds}
+          remainingHint={restHint}
+          nextHint={restNext}
+          onComplete={endRest}
+          onSkip={endRest}
+        />
       </div>
     )
   }
@@ -632,7 +766,7 @@ export function WorkoutScreen({
         </header>
 
         <p className="muted pad">
-          Vali harjutus (või kaks, et teha segamini). Järjekord on sinu kavas.
+          Vali harjutus (või kaks, et teha segamini). Segamini: paus ainult pärast teist harjutust.
         </p>
 
         <ul className="pick-list">
@@ -643,6 +777,7 @@ export function WorkoutScreen({
             const total = logged?.sets.length ?? exerciseRounds(ex)
             const isOn = selected.includes(index)
             const finishedEarly = Boolean(dayLog.finishedAt) && !done
+            const earlyDone = Boolean(logged?.finishedEarly)
             return (
               <li key={ex.id}>
                 <button
@@ -658,10 +793,12 @@ export function WorkoutScreen({
                     <p className="plan-name">{ex.name}</p>
                     <p className="muted small">
                       {done
-                        ? 'Tehtud'
+                        ? earlyDone
+                          ? `Tehtud · ${doneSets}/${total} seeriat`
+                          : 'Tehtud'
                         : finishedEarly
                           ? `Tegemata · ${doneSets}/${total} seeriat`
-                          : `${doneSets}/${total} kordust`}
+                          : `${doneSets}/${total} seeriat`}
                       {isOn && selected.length === 2
                         ? ` · segamini #${selected.indexOf(index) + 1}`
                         : ''}
@@ -689,7 +826,14 @@ export function WorkoutScreen({
     )
   }
 
-  // ready | active
+  const setsToShow =
+    compact && currentLog
+      ? currentLog.sets
+          .map((set, si) => ({ set, si }))
+          .filter(({ si }) => si === setIndex)
+      : currentLog
+        ? currentLog.sets.map((set, si) => ({ set, si }))
+        : []
 
   return (
     <div className="screen workout-screen guided-workout">
@@ -700,7 +844,7 @@ export function WorkoutScreen({
         <div className="topbar-title">
           <h2>{currentEx?.name ?? plan.name}</h2>
           <p className="muted small">
-            Kordus <strong>{setNumber}</strong> / {totalRounds}
+            Seeria <strong>{setNumber}</strong> / {totalRounds}
             {selected.length === 2 ? ' · segamini' : ''}
           </p>
         </div>
@@ -715,19 +859,6 @@ export function WorkoutScreen({
             onContextMenu={(e) => e.preventDefault()}
           >
             Start
-          </button>
-        )}
-        {flow === 'active' && (
-          <button
-            type="button"
-            className="btn btn-corner-done"
-            onPointerDown={onTehtudPointerDown}
-            onPointerUp={onTehtudPointerUp}
-            onPointerLeave={onTehtudPointerCancel}
-            onPointerCancel={onTehtudPointerCancel}
-            onClick={(e) => e.preventDefault()}
-          >
-            Tehtud
           </button>
         )}
       </header>
@@ -765,9 +896,9 @@ export function WorkoutScreen({
                 <strong>{currentSet.weightKg} kg</strong>
               </div>
               <div className="workout-now-row">
-                <span className="muted">Kordi</span>
+                <span className="muted">Seeria</span>
                 <strong>
-                  {totalRounds} korda · {setNumber}. kordus
+                  {setNumber} / {totalRounds}
                 </strong>
               </div>
               <div className="workout-now-row">
@@ -778,17 +909,21 @@ export function WorkoutScreen({
               </div>
               <div className="workout-now-row">
                 <span className="muted">Paus</span>
-                <strong>{currentEx.restSeconds}s</strong>
+                <strong>
+                  {selected.length === 2 ? 'pärast 2. harjutust · ' : ''}
+                  {currentEx.restSeconds}s
+                </strong>
               </div>
             </div>
           )}
 
           <p className="muted small">
-            Vali iga korduse juures pink. Hoia Starti peal, et muuta kordust või märkida kõik tehtud.
+            Pink ja raskus esimesel seerial lähevad automaatselt ka järgmistesse. Hoia Starti, et
+            hüpata seeriale.
           </p>
 
           <div className="set-list">
-            {currentLog.sets.map((set, si) => {
+            {setsToShow.map(({ set, si }) => {
               const rowMachine =
                 getMachine(currentEx, set.machineId) ?? getPrimaryMachine(currentEx)
               const targetKg = suggestedWeight(rowMachine.baseWeightKg, phase.weightMultiplier)
@@ -849,11 +984,32 @@ export function WorkoutScreen({
         </div>
       )}
 
+      <div className="tehtud-dock">
+        {flow === 'active' && (
+          <button
+            type="button"
+            className="btn btn-tehtud-lg"
+            onPointerDown={onTehtudPointerDown}
+            onPointerUp={onTehtudPointerUp}
+            onPointerLeave={onTehtudPointerCancel}
+            onPointerCancel={onTehtudPointerCancel}
+            onClick={(e) => e.preventDefault()}
+          >
+            Tehtud
+          </button>
+        )}
+        {(flow === 'ready' || flow === 'active') && (
+          <button type="button" className="btn btn-ghost full" onClick={handleFinishEarly}>
+            Lõpeta harjutus
+          </button>
+        )}
+      </div>
+
       {showSetMenu && currentLog && (
-        <div className="timer-overlay" role="dialog" aria-label="Muuda kordust">
+        <div className="timer-overlay" role="dialog" aria-label="Muuda seeriat">
           <div className="timer-card add-pink-card">
-            <p className="timer-label">Kordus</p>
-            <p className="muted small">Vali, mitmenda kordusega jätkad, või märgi kõik tehtud.</p>
+            <p className="timer-label">Seeria</p>
+            <p className="muted small">Vali, mitmenda seeriaga jätkad, või lõpeta harjutus varem.</p>
             <div className="set-jump-grid">
               {currentLog.sets.map((_, i) => (
                 <button
@@ -867,7 +1023,7 @@ export function WorkoutScreen({
               ))}
             </div>
             <button type="button" className="btn btn-primary full" onClick={handleAllDone}>
-              Kõik tehtud
+              Lõpeta harjutus
             </button>
             <button type="button" className="btn btn-ghost full" onClick={() => setShowSetMenu(false)}>
               Tagasi

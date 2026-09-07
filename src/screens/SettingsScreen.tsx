@@ -17,6 +17,7 @@ import {
 } from '../phases'
 import { createMachine, withDefaultMachine } from '../exercises'
 import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
+import { watchUrl } from '../orientation'
 
 interface SettingsScreenProps {
   state: AppState
@@ -39,6 +40,7 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
   const editingPhase = state.phases.find((p) => p.id === editingPhaseId) ?? null
   const totalCycleWeeks = cycleWeeks(state.phases)
   const phaseProgress = getPhaseProgress(state)
+  const watchHref = watchUrl()
 
   function updatePhase(phaseId: PhaseId, patch: Partial<Phase>) {
     onChange({
@@ -695,6 +697,33 @@ export function SettingsScreen({ state, onChange, onBack, userEmail, onLogout }:
         </button>
         <h2>Seaded</h2>
       </header>
+
+      <section className="settings-block">
+        <h3>Nutikell</h3>
+        <p className="muted small">
+          Wear OS / Samsung Galaxy Watch: ava kellas brauseris kellavaade (suured nupud). Kui oled
+          samasse kontosse sisse logitud, saab kell juhtida telefonis käivat treeningut (Start,
+          Tehtud, paus). Apple Watchi brauser on piiratud — seal ava sama link või treeni kellavaates
+          otse.
+        </p>
+        <div className="home-actions">
+          <a className="btn btn-secondary full" href={watchHref}>
+            Ava kellavaade
+          </a>
+          <button
+            type="button"
+            className="btn btn-ghost full"
+            onClick={() => {
+              void navigator.clipboard?.writeText(watchHref).then(
+                () => window.alert('Kellavaate link on kopeeritud.'),
+                () => window.alert(watchHref),
+              )
+            }}
+          >
+            Kopeeri kellalink
+          </button>
+        </div>
+      </section>
 
       {userEmail && (
         <section className="settings-block account-block">

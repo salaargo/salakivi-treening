@@ -287,9 +287,14 @@ function normalizeLogs(
           .filter((s): s is AppState['logs'][string]['exercises'][number]['sets'][number] => s !== null)
 
         if (!sets.length) return null
-        return { exerciseId: ex.exerciseId, sets }
+        const logged: ExerciseLog = {
+          exerciseId: ex.exerciseId,
+          sets,
+        }
+        if (ex.finishedEarly) logged.finishedEarly = true
+        return logged
       })
-      .filter((ex): ex is AppState['logs'][string]['exercises'][number] => ex !== null)
+      .filter((ex): ex is ExerciseLog => ex !== null)
 
     if (!exercises.length) continue
     out[dateKey] = {
@@ -526,12 +531,14 @@ function buildExerciseLogSkeleton(ex: ExerciseTemplate, phase: Phase): ExerciseL
 }
 
 export function isExerciseLogDone(log: DayLog, exerciseId: string): boolean {
-  const sets = log.exercises.find((e) => e.exerciseId === exerciseId)?.sets
-  return Boolean(sets?.length && sets.every((s) => s.completed))
+  const entry = log.exercises.find((e) => e.exerciseId === exerciseId)
+  if (!entry) return false
+  if (entry.finishedEarly) return true
+  return Boolean(entry.sets.length && entry.sets.every((s) => s.completed))
 }
 
 export function dayLogHasIncomplete(log: DayLog): boolean {
-  return log.exercises.some((ex) => ex.sets.some((s) => !s.completed))
+  return log.exercises.some((ex) => !isExerciseLogDone(log, ex.exerciseId))
 }
 
 export function ensureDayLog(state: AppState, dateKey: string): DayLog | null {

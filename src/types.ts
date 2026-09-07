@@ -57,6 +57,8 @@ export interface SetLog {
 export interface ExerciseLog {
   exerciseId: string
   sets: SetLog[]
+  /** Harjutus lõpetati enne kõigi seeriate täissaamist (nt 3/4). */
+  finishedEarly?: boolean
 }
 
 export interface DayLog {

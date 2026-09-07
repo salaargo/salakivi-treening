@@ -1,0 +1,11 @@
+{
+  "name": "Salakivi Treening",
+  "short_name": "Salakivi",
+  "lang": "et",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12140f",
+  "theme_color": "#12140f",
+  "description": "Salakivi treeningprogramm telefonis ja kellas."
+}

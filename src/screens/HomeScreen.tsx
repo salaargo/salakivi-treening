@@ -5,6 +5,7 @@ interface HomeScreenProps {
   phaseName: string
   phaseHint: string
   userEmail?: string
+  compact?: boolean
 }
 
 export function HomeScreen({
@@ -14,9 +15,10 @@ export function HomeScreen({
   phaseName,
   phaseHint,
   userEmail,
+  compact = false,
 }: HomeScreenProps) {
   return (
-    <div className="screen home-screen">
+    <div className={`screen home-screen ${compact ? 'is-compact' : ''}`}>
       <header className="home-hero">
         <p className="eyebrow">Salakivi</p>
         <h1 className="brand">Treening</h1>
