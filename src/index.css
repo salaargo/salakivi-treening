@@ -113,11 +113,22 @@ select:focus {
 }
 
 .brand {
-  margin: 0.15rem 0 1.25rem;
+  margin: 0.15rem 0 0.35rem;
   font-family: var(--display);
   font-size: clamp(4.5rem, 22vw, 6.5rem);
   line-height: 0.9;
   letter-spacing: 0.02em;
+}
+
+.home-hello {
+  margin: 0 0 1.1rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.home-hello strong {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .home-phase {
@@ -453,6 +464,10 @@ select:focus {
 
 .home-user {
   margin-top: 0.35rem;
+}
+
+.user-give {
+  margin-top: 0.65rem;
 }
 
 .account-block {
@@ -1293,6 +1308,11 @@ a.btn {
 
 .home-screen.is-compact .home-hero {
   padding-top: 0.4rem;
+}
+
+.home-screen.is-compact .home-hello {
+  margin-bottom: 0.55rem;
+  font-size: 1.05rem;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {

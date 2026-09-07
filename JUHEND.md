@@ -38,12 +38,12 @@ salakivi-treening/
 ### 1.2 Käivita SQL
 
 1. Supabase → **SQL Editor** → **New query**
-2. Kopeeri kogu fail `supabase/schema.sql` sisu (või olemasoleva projekti korral `supabase/migration_admin.sql`)
+2. Kopeeri kogu fail `supabase/schema.sql` sisu (või olemasoleva projekti korral `supabase/migration_admin.sql` ja seejärel `supabase/migration_names.sql`)
 3. **Run**
 
-See loob tabeli `user_app_state`, näidiskava (`program_template`), kasutajate nimekirja (`profiles`) ja reeglid (RLS), et iga kasutaja näeb **ainult oma** treeninguandmeid. Admin (Argo) näeb Seadetes registreerunud kasutajaid.
+See loob tabeli `user_app_state`, näidiskava (`program_template`), kasutajate nimekirja (`profiles`, sh nimi) ja reeglid (RLS), et iga kasutaja näeb **ainult oma** treeninguandmeid. Admin (Argo) näeb Seadetes registreerunud kasutajaid ja saab neile näidiskava anda.
 
-Kui äpp juba töötab: käivita **`supabase/migration_admin.sql`**, muidu uued kasutajad ei saa näidiskava ja admini nimekiri on tühi.
+Kui äpp juba töötab: käivita **`supabase/migration_admin.sql`**, siis **`supabase/migration_names.sql`**.
 
 ### 1.3 Võtmed
 
@@ -56,8 +56,10 @@ Kui äpp juba töötab: käivita **`supabase/migration_admin.sql`**, muidu uued 
 
 1. **Authentication** → **Providers** → luba **Email**
 2. Iga inimene:
-   - avab äpi → **Loo konto** (e-post + parool min 6 tähemärki), või
-   - saad kutsuda: **Authentication** → **Users** → **Add user**
+   - avab äpi → **Loo konto** (nimi + e-post + parool min 6 tähemärki), või
+   - saad kutsuda: **Authentication** → **Users** → **Add user** (nimi saab hiljem Seadetes lisada)
+
+Olemasolevale kasutajale saab admin Seadetes anda näidiskava nupuga **Anna näidiskava** (ei pea kontot kustutama). Uue projekti korral käivita `supabase/schema.sql`; juba töötava projekti täiendused: `supabase/migration_admin.sql` ja `supabase/migration_names.sql`.
 
 Soovi korral lülita välja e-posti kinnitamine (väike grupp):
 **Authentication** → **Providers** → Email → **Confirm email** = OFF.

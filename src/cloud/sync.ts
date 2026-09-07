@@ -15,8 +15,37 @@ interface CloudRow {
 export interface UserProfile {
   user_id: string
   email: string
+  display_name: string
   created_at: string
   last_seen_at: string
+}
+
+export function normalizeDisplayName(value?: string | null): string {
+  if (!value) return ''
+  return value.replace(/\s+/g, ' ').trim().slice(0, 40)
+}
+
+export function displayNameFromMetadata(metadata: Record<string, unknown> | undefined): string {
+  if (!metadata) return ''
+  const keys = ['display_name', 'full_name', 'name'] as const
+  for (const key of keys) {
+    const value = metadata[key]
+    if (typeof value === 'string') {
+      const name = normalizeDisplayName(value)
+      if (name) return name
+    }
+  }
+  return ''
+}
+
+function mapProfile(row: Record<string, unknown>): UserProfile {
+  return {
+    user_id: String(row.user_id ?? ''),
+    email: (row.email as string | null) ?? '—',
+    display_name: normalizeDisplayName(row.display_name as string | null),
+    created_at: String(row.created_at ?? ''),
+    last_seen_at: String(row.last_seen_at ?? ''),
+  }
 }
 
 function isMissingRelation(error: { code?: string; message?: string } | null | undefined): boolean {
@@ -64,17 +93,75 @@ export async function publishProgramTemplate(state: AppState): Promise<void> {
   if (error) throw error
 }
 
-export async function touchProfile(userId: string, email?: string | null): Promise<void> {
+export async function touchProfile(
+  userId: string,
+  email?: string | null,
+  displayName?: string | null,
+): Promise<void> {
   const supabase = getSupabase()
   const now = new Date().toISOString()
-  const row: { user_id: string; last_seen_at: string; email?: string } = {
+  const row: { user_id: string; last_seen_at: string; email?: string; display_name?: string } = {
     user_id: userId,
     last_seen_at: now,
   }
   if (email) row.email = email
-  const { error } = await supabase.from('profiles').upsert(row, { onConflict: 'user_id' })
+  const name = normalizeDisplayName(displayName)
+  if (name) row.display_name = name
+  const { error } = await supabase.from('profiles').upsert(row, { onConflict: 'user_id', defaultToNull: false })
   if (error && !isMissingRelation(error)) {
     console.warn('profiles upsert', error.message)
+  }
+}
+
+export async function loadMyProfile(userId: string): Promise<UserProfile | null> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('user_id, email, display_name, created_at, last_seen_at')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    if (isMissingRelation(error)) return null
+    throw error
+  }
+  if (!data) return null
+  return mapProfile(data)
+}
+
+export async function saveDisplayName(userId: string, email: string | null, name: string): Promise<string> {
+  const displayName = normalizeDisplayName(name)
+  if (displayName.length < 2) throw new Error('Sisesta oma nimi (vähemalt 2 märki).')
+
+  const supabase = getSupabase()
+  const { error } = await supabase.from('profiles').upsert(
+    {
+      user_id: userId,
+      email: email ?? undefined,
+      display_name: displayName,
+      last_seen_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id', defaultToNull: false },
+  )
+  if (error) throw error
+
+  const { error: metaError } = await supabase.auth.updateUser({
+    data: { display_name: displayName },
+  })
+  if (metaError) console.warn('auth metadata', metaError.message)
+  return displayName
+}
+
+export async function applyProgramTemplateToUser(userId: string): Promise<void> {
+  const supabase = getSupabase()
+  const { error } = await supabase.rpc('apply_program_template_to_user', {
+    target_user_id: userId,
+  })
+  if (error) {
+    if (isMissingRelation(error) || /function .+ does not exist/i.test(error.message)) {
+      throw new Error('Näidiskava andmise funktsioon pole veel Supabases. Käivita supabase/migration_names.sql.')
+    }
+    throw error
   }
 }
 
@@ -82,24 +169,19 @@ export async function listRegisteredUsers(): Promise<UserProfile[]> {
   const supabase = getSupabase()
   const { data, error } = await supabase
     .from('profiles')
-    .select('user_id, email, created_at, last_seen_at')
+    .select('user_id, email, display_name, created_at, last_seen_at')
     .order('last_seen_at', { ascending: false })
 
   if (error) {
     if (isMissingRelation(error)) {
       throw new Error(
-        'Admini tabelid pole veel Supabases. Käivita supabase/schema.sql (või supabase/migration_admin.sql) SQL Editoris.',
+        'Admini tabelid pole veel Supabases. Käivita supabase/schema.sql (või supabase/migration_names.sql) SQL Editoris.',
       )
     }
     throw error
   }
 
-  return (data ?? []).map((row) => ({
-    user_id: row.user_id as string,
-    email: (row.email as string | null) ?? '—',
-    created_at: row.created_at as string,
-    last_seen_at: row.last_seen_at as string,
-  }))
+  return (data ?? []).map((row) => mapProfile(row as Record<string, unknown>))
 }
 
 /**
@@ -118,7 +200,8 @@ export async function loadCloudState(userId: string): Promise<AppState> {
 
   const { data: auth } = await supabase.auth.getUser()
   const email = auth.user?.email ?? null
-  void touchProfile(userId, email)
+  const metaName = displayNameFromMetadata(auth.user?.user_metadata as Record<string, unknown> | undefined)
+  void touchProfile(userId, email, metaName || undefined)
 
   if (data?.state) {
     const parsed = parseAppState(data.state)
@@ -158,7 +241,8 @@ export async function saveCloudState(userId: string, state: AppState): Promise<v
 
   const { data: auth } = await supabase.auth.getUser()
   const email = auth.user?.email ?? null
-  await touchProfile(userId, email)
+  const metaName = displayNameFromMetadata(auth.user?.user_metadata as Record<string, unknown> | undefined)
+  await touchProfile(userId, email, metaName || undefined)
 
   if (isAdminEmail(email)) {
     try {

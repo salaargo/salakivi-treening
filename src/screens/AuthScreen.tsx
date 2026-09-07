@@ -19,6 +19,7 @@ function appRedirectUrl(): string {
 export function AuthScreen({ onSignedIn, recoveryMode = false, onPasswordUpdated }: AuthScreenProps) {
   const [mode, setMode] = useState<AuthMode>(recoveryMode ? 'new-password' : 'login')
   const [email, setEmail] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
   const [busy, setBusy] = useState(false)
@@ -69,9 +70,14 @@ export function AuthScreen({ onSignedIn, recoveryMode = false, onPasswordUpdated
       }
 
       if (mode === 'register') {
+        const name = displayName.replace(/\s+/g, ' ').trim()
+        if (name.length < 2) throw new Error('Sisesta oma nimi (vähemalt 2 märki).')
         const { error: signUpError } = await supabase.auth.signUp({
           email: trimmedEmail,
           password,
+          options: {
+            data: { display_name: name.slice(0, 40) },
+          },
         })
         if (signUpError) throw signUpError
         setMessage('Konto loodud. Kui kinnitus on vajalik, kontrolli e-posti. Proovi seejärel sisse logida.')
@@ -129,6 +135,22 @@ export function AuthScreen({ onSignedIn, recoveryMode = false, onPasswordUpdated
             >
               Loo konto
             </button>
+          </div>
+        )}
+
+        {mode === 'register' && (
+          <div className="field block">
+            <label htmlFor="auth-name">Nimi</label>
+            <input
+              id="auth-name"
+              type="text"
+              autoComplete="name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Nt Ardo"
+              maxLength={40}
+              required
+            />
           </div>
         )}
 

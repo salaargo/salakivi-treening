@@ -59,6 +59,7 @@ $$;
 create table if not exists public.profiles (
   user_id uuid primary key references auth.users (id) on delete cascade,
   email text,
+  display_name text,
   created_at timestamptz not null default now(),
   last_seen_at timestamptz not null default now()
 );
@@ -90,11 +91,16 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_name text;
 begin
-  insert into public.profiles (user_id, email, created_at, last_seen_at)
-  values (new.id, new.email, now(), now())
+  v_name := nullif(btrim(coalesce(new.raw_user_meta_data ->> 'display_name', '')), '');
+  insert into public.profiles (user_id, email, display_name, created_at, last_seen_at)
+  values (new.id, new.email, v_name, now(), now())
   on conflict (user_id) do update
-    set email = excluded.email;
+    set
+      email = excluded.email,
+      display_name = coalesce(public.profiles.display_name, excluded.display_name);
   return new;
 end;
 $$;
@@ -143,11 +149,48 @@ grant select, insert, update on public.profiles to authenticated;
 grant select, insert, update on public.program_template to authenticated;
 grant execute on function public.is_salakivi_admin() to authenticated;
 
+create or replace function public.apply_program_template_to_user(target_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  tmpl jsonb;
+  existing jsonb;
+  merged jsonb;
+begin
+  if not public.is_salakivi_admin() then
+    raise exception 'Ainult admin saab näidiskava anda';
+  end if;
+  if target_user_id is null then
+    raise exception 'Kasutaja puudub';
+  end if;
+
+  select state into tmpl from public.program_template where id = 1;
+  if tmpl is null then
+    raise exception 'Näidiskava puudub';
+  end if;
+
+  select state into existing from public.user_app_state where user_id = target_user_id;
+  merged := tmpl || jsonb_build_object('logs', coalesce(existing -> 'logs', '{}'::jsonb));
+
+  insert into public.user_app_state (user_id, state)
+  values (target_user_id, merged)
+  on conflict (user_id) do update
+    set state = excluded.state;
+end;
+$$;
+
+revoke all on function public.apply_program_template_to_user(uuid) from public;
+grant execute on function public.apply_program_template_to_user(uuid) to authenticated;
+
 -- Olemasolevad kontod nimekirja
-insert into public.profiles (user_id, email, created_at, last_seen_at)
+insert into public.profiles (user_id, email, display_name, created_at, last_seen_at)
 select
   u.id,
   u.email,
+  nullif(btrim(coalesce(u.raw_user_meta_data ->> 'display_name', '')), ''),
   coalesce(u.created_at, now()),
   coalesce(s.updated_at, u.last_sign_in_at, u.created_at, now())
 from auth.users u
@@ -155,6 +198,7 @@ left join public.user_app_state s on s.user_id = u.id
 on conflict (user_id) do update
   set
     email = excluded.email,
+    display_name = coalesce(public.profiles.display_name, excluded.display_name),
     last_seen_at = greatest(public.profiles.last_seen_at, excluded.last_seen_at);
 
 -- Argo praegused kavad näidiseks (logideta), kui tal on juba pilveandmed

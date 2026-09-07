@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { AppState } from '../types'
-import { listRegisteredUsers, publishProgramTemplate, type UserProfile } from '../cloud/sync'
+import {
+  applyProgramTemplateToUser,
+  listRegisteredUsers,
+  publishProgramTemplate,
+  type UserProfile,
+} from '../cloud/sync'
 
 interface AdminUsersPanelProps {
   state: AppState
+  adminUserId?: string
 }
 
 function formatWhen(iso: string): string {
@@ -18,11 +24,12 @@ function formatWhen(iso: string): string {
   })
 }
 
-export function AdminUsersPanel({ state }: AdminUsersPanelProps) {
+export function AdminUsersPanel({ state, adminUserId }: AdminUsersPanelProps) {
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [publishStatus, setPublishStatus] = useState<string | null>(null)
+  const [givingId, setGivingId] = useState<string | null>(null)
 
   async function refresh() {
     setLoading(true)
@@ -51,6 +58,24 @@ export function AdminUsersPanel({ state }: AdminUsersPanelProps) {
     }
   }
 
+  async function handleGiveProgram(user: UserProfile) {
+    const label = user.display_name || user.email
+    const ok = window.confirm(
+      `Anda ${label} sinu praegune näidiskava? Tema kavad/faasid kirjutatakse üle; treeninglogid jäävad alles.`,
+    )
+    if (!ok) return
+    setGivingId(user.user_id)
+    setPublishStatus(null)
+    try {
+      await applyProgramTemplateToUser(user.user_id)
+      setPublishStatus(`Näidiskava on antud: ${label}. Ta näeb seda järgmisel avamisel.`)
+    } catch (err) {
+      setPublishStatus(err instanceof Error ? err.message : 'Näidiskava andmine ebaõnnestus.')
+    } finally {
+      setGivingId(null)
+    }
+  }
+
   return (
     <section className="settings-block admin-block">
       <div className="section-head">
@@ -61,7 +86,7 @@ export function AdminUsersPanel({ state }: AdminUsersPanelProps) {
       </div>
       <p className="muted small">
         Uued kasutajad saavad sinu praegused treeningkavad näidiseks (ilma sinu logideta). Salvestamine
-        uuendab näidist automaatselt.
+        uuendab näidist automaatselt. Olemasolevale kasutajale saad kavad anda ka nimekirjast.
       </p>
       <button type="button" className="btn btn-secondary full" onClick={() => void handlePublish()}>
         Avalda kavad näidiseks nüüd
@@ -81,9 +106,20 @@ export function AdminUsersPanel({ state }: AdminUsersPanelProps) {
         <ul className="user-list">
           {users.map((user) => (
             <li key={user.user_id} className="user-row">
-              <p className="plan-name user-email">{user.email}</p>
+              <p className="plan-name">{user.display_name || 'Nime pole'}</p>
+              <p className="muted small user-email">{user.email}</p>
               <p className="muted small">Registreeritud {formatWhen(user.created_at)}</p>
               <p className="muted small">Viimati kasutas {formatWhen(user.last_seen_at)}</p>
+              {user.user_id !== adminUserId && (
+                <button
+                  type="button"
+                  className="btn btn-secondary full user-give"
+                  disabled={givingId === user.user_id}
+                  onClick={() => void handleGiveProgram(user)}
+                >
+                  {givingId === user.user_id ? 'Andan kava…' : 'Anna näidiskava'}
+                </button>
+              )}
             </li>
           ))}
         </ul>

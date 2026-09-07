@@ -10,7 +10,7 @@ import {
   stopTodayWorkout,
   todayKey,
 } from './storage'
-import { isCloudEnabled, loadCloudState, saveCloudState } from './cloud/sync'
+import { isCloudEnabled, loadCloudState, loadMyProfile, saveCloudState, displayNameFromMetadata } from './cloud/sync'
 import { isAdminEmail } from './admin'
 import { getSupabase } from './lib/supabase'
 import { HomeScreen } from './screens/HomeScreen'
@@ -55,6 +55,7 @@ export default function App() {
 
   const userId = session?.user.id ?? null
   const userEmail = session?.user.email ?? ''
+  const [displayName, setDisplayName] = useState('')
 
   useEffect(() => {
     if (!cloud) return
@@ -76,6 +77,9 @@ export default function App() {
           const loaded = await loadCloudState(current.user.id)
           setState(loaded)
           skipCloudSave.current = true
+          const meta = displayNameFromMetadata(current.user.user_metadata as Record<string, unknown>)
+          const profile = await loadMyProfile(current.user.id)
+          setDisplayName(profile?.display_name || meta)
         } catch (err) {
           setBootError(err instanceof Error ? err.message : 'Pilve andmete laadimine ebaõnnestus.')
         }
@@ -96,6 +100,7 @@ export default function App() {
         setPasswordRecovery(false)
         setState(loadState())
         setScreen({ name: 'home' })
+        setDisplayName('')
         skipCloudSave.current = true
       }
     })
@@ -160,6 +165,13 @@ export default function App() {
     const loaded = await loadCloudState(data.session.user.id)
     setState(loaded)
     skipCloudSave.current = true
+    const meta = displayNameFromMetadata(data.session.user.user_metadata as Record<string, unknown>)
+    try {
+      const profile = await loadMyProfile(data.session.user.id)
+      setDisplayName(profile?.display_name || meta)
+    } catch {
+      setDisplayName(meta)
+    }
     setScreen({ name: 'home' })
   }, [])
 
@@ -168,6 +180,7 @@ export default function App() {
     await supabase.auth.signOut()
     setSession(null)
     setState(loadState())
+    setDisplayName('')
     skipCloudSave.current = true
     setScreen({ name: 'home' })
   }
@@ -270,7 +283,7 @@ export default function App() {
                   ? `${spotlight.progress.phase.description} · nädal ${spotlight.progress.weekInPhase}/${spotlight.progress.phase.weeks}`
                   : 'Lisa kavad ja pane need nädalapäevadele.'
               }
-              userEmail={cloud ? userEmail : undefined}
+              userName={cloud ? displayName || undefined : undefined}
               compact={watchMode}
               onTrain={() => setScreen({ name: 'train-choice' })}
               onSettings={() => setScreen({ name: 'settings' })}
@@ -330,6 +343,9 @@ export default function App() {
               onChange={setState}
               onBack={() => setScreen({ name: 'home' })}
               userEmail={cloud ? userEmail : undefined}
+              userId={cloud ? userId ?? undefined : undefined}
+              displayName={cloud ? displayName : undefined}
+              onDisplayNameChange={setDisplayName}
               onLogout={cloud ? () => void handleLogout() : undefined}
               isAdmin={cloud && isAdminEmail(userEmail)}
             />

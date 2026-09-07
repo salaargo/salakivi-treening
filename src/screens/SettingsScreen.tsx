@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   AppState,
   ExerciseMachine,
@@ -18,6 +18,8 @@ import {
 import { createMachine, withDefaultMachine } from '../exercises'
 import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
 import { watchUrl } from '../orientation'
+import { getSupabase } from '../lib/supabase'
+import { saveDisplayName } from '../cloud/sync'
 import { AdminUsersPanel } from './AdminUsersPanel'
 
 interface SettingsScreenProps {
@@ -25,6 +27,9 @@ interface SettingsScreenProps {
   onChange: (next: AppState) => void
   onBack: () => void
   userEmail?: string
+  userId?: string
+  displayName?: string
+  onDisplayNameChange?: (name: string) => void
   onLogout?: () => void
   isAdmin?: boolean
 }
@@ -38,18 +43,48 @@ export function SettingsScreen({
   onChange,
   onBack,
   userEmail,
+  userId,
+  displayName = '',
+  onDisplayNameChange,
   onLogout,
   isAdmin = false,
 }: SettingsScreenProps) {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null)
   const [editingPhaseId, setEditingPhaseId] = useState<PhaseId | null>(null)
+  const [nameDraft, setNameDraft] = useState(displayName)
+  const [nameStatus, setNameStatus] = useState<string | null>(null)
+  const [nameBusy, setNameBusy] = useState(false)
   const editing = state.plans.find((p) => p.id === editingPlanId) ?? null
   const editingWeek = state.weeks.find((w) => w.id === editingWeekId) ?? null
   const editingPhase = state.phases.find((p) => p.id === editingPhaseId) ?? null
   const totalCycleWeeks = cycleWeeks(state.phases)
   const phaseProgress = getPhaseProgress(state)
   const watchHref = watchUrl()
+
+  useEffect(() => {
+    setNameDraft(displayName)
+  }, [displayName])
+
+  async function handleSaveName() {
+    if (!userEmail) return
+    setNameBusy(true)
+    setNameStatus(null)
+    try {
+      const supabase = getSupabase()
+      const { data } = await supabase.auth.getUser()
+      const userId = data.user?.id
+      if (!userId) throw new Error('Sisselogimine puudub.')
+      const saved = await saveDisplayName(userId, userEmail, nameDraft)
+      onDisplayNameChange?.(saved)
+      setNameDraft(saved)
+      setNameStatus('Nimi salvestatud.')
+    } catch (err) {
+      setNameStatus(err instanceof Error ? err.message : 'Nime salvestamine ebaõnnestus.')
+    } finally {
+      setNameBusy(false)
+    }
+  }
 
   function updatePhase(phaseId: PhaseId, patch: Partial<Phase>) {
     onChange({
@@ -707,7 +742,7 @@ export function SettingsScreen({
         <h2>Seaded</h2>
       </header>
 
-      {isAdmin && <AdminUsersPanel state={state} />}
+      {isAdmin && <AdminUsersPanel state={state} adminUserId={userId} />}
 
       <section className="settings-block">
         <h3>Nutikell</h3>
@@ -739,7 +774,29 @@ export function SettingsScreen({
       {userEmail && (
         <section className="settings-block account-block">
           <p className="muted small">Sisse logitud</p>
-          <p className="plan-name">{userEmail}</p>
+          {displayName && <p className="plan-name">{displayName}</p>}
+          <p className={displayName ? 'muted small user-email' : 'plan-name'}>{userEmail}</p>
+          <div className="field block">
+            <label htmlFor="settings-name">Nimi avalehel</label>
+            <input
+              id="settings-name"
+              type="text"
+              autoComplete="name"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              maxLength={40}
+              placeholder="Sinu eesnimi"
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary full"
+            onClick={() => void handleSaveName()}
+            disabled={nameBusy}
+          >
+            {nameBusy ? 'Salvestan…' : 'Salvesta nimi'}
+          </button>
+          {nameStatus && <p className="muted small">{nameStatus}</p>}
           {onLogout && (
             <button type="button" className="btn btn-ghost danger full" onClick={onLogout}>
               Logi välja

@@ -4,7 +4,7 @@ interface HomeScreenProps {
   planName: string
   phaseName: string
   phaseHint: string
-  userEmail?: string
+  userName?: string
   compact?: boolean
 }
 
@@ -14,7 +14,7 @@ export function HomeScreen({
   planName,
   phaseName,
   phaseHint,
-  userEmail,
+  userName,
   compact = false,
 }: HomeScreenProps) {
   return (
@@ -22,7 +22,11 @@ export function HomeScreen({
       <header className="home-hero">
         <p className="eyebrow">Salakivi</p>
         <h1 className="brand">Treening</h1>
-        {userEmail && <p className="muted small home-user">{userEmail}</p>}
+        {userName && (
+          <p className="home-hello">
+            Tere, <strong>{userName}</strong>
+          </p>
+        )}
         <p className="home-phase">
           {planName}: <strong>{phaseName}</strong>
         </p>
