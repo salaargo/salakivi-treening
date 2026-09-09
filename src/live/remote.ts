@@ -1,7 +1,7 @@
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-export type RemoteCommandType = 'start' | 'tehtud' | 'skip-rest' | 'finish-exercise' | 'stop'
+export type RemoteCommandType = 'start' | 'tehtud' | 'skip-rest' | 'finish-exercise' | 'stop' | 'sync'
 
 export interface LiveSnapshot {
   v: 1
@@ -17,6 +17,8 @@ export interface LiveSnapshot {
   nextHint?: string
   restSeconds?: number
   restEndsAt?: number
+  remainingSets?: number
+  remainingReps?: number
   weightKg?: number
   machineName?: string
 }
@@ -30,7 +32,7 @@ export interface LiveCommand {
 const BC_NAME = 'salakivi-live'
 const SNAP_KEY = 'salakivi-live-snap-v1'
 const CMD_KEY = 'salakivi-live-cmd-v1'
-const FRESH_MS = 8000
+const TABLE = 'live_remote'
 
 type Envelope = { kind: 'snap'; snap: LiveSnapshot } | { kind: 'cmd'; cmd: LiveCommand }
 
@@ -40,9 +42,13 @@ const seenCommands = new Set<string>()
 
 let bc: BroadcastChannel | null = null
 let supabaseChannel: RealtimeChannel | null = null
+let currentUserId: string | null = null
+let tableMissing = false
+let lastSnap: LiveSnapshot | null = null
 
 function emit(env: Envelope): void {
   if (env.kind === 'snap') {
+    lastSnap = env.snap
     snapListeners.forEach((fn) => fn(env.snap))
     return
   }
@@ -66,38 +72,147 @@ function getBc(): BroadcastChannel | null {
   return bc
 }
 
+function isMissingRelation(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false
+  const message = error.message ?? ''
+  return (
+    error.code === 'PGRST205' ||
+    error.code === '42P01' ||
+    /could not find the table|does not exist|schema cache/i.test(message)
+  )
+}
+
+/** Kella jaoks: viimane seis jääb kehtima, pausi lõppaeg tiksub kohalikult. */
 export function snapshotIsFresh(snap: LiveSnapshot | null, now = Date.now()): snap is LiveSnapshot {
-  return Boolean(snap && now - snap.at < FRESH_MS && snap.flow !== 'idle')
+  if (!snap || snap.flow === 'idle') return false
+  if (snap.flow === 'resting' && snap.restEndsAt && snap.restEndsAt > now - 4000) return true
+  if (snap.flow === 'ready' || snap.flow === 'active' || snap.flow === 'pick' || snap.flow === 'sauna') {
+    return true
+  }
+  return now - snap.at < 120000
 }
 
 export function readStoredSnapshot(): LiveSnapshot | null {
+  if (lastSnap) return lastSnap
   try {
     const raw = localStorage.getItem(SNAP_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as LiveSnapshot
-    return parsed?.v === 1 ? parsed : null
+    if (parsed?.v === 1) {
+      lastSnap = parsed
+      return parsed
+    }
+    return null
   } catch {
     return null
   }
 }
 
+function persistLocal(snap: LiveSnapshot): void {
+  lastSnap = snap
+  try {
+    localStorage.setItem(SNAP_KEY, JSON.stringify(snap))
+  } catch {
+    /* ignore quota */
+  }
+}
+
+export function getLatestLiveSnapshot(): LiveSnapshot | null {
+  return lastSnap ?? readStoredSnapshot()
+}
+
+function liveFromState(state: unknown): LiveSnapshot | null {
+  if (!state || typeof state !== 'object') return null
+  const snap = (state as { __live?: LiveSnapshot }).__live
+  return snap?.v === 1 ? snap : null
+}
+
+async function persistCloud(snap: LiveSnapshot): Promise<void> {
+  if (!isCloudEnabled() || !currentUserId) return
+  const supabase = getSupabase()
+
+  if (!tableMissing) {
+    try {
+      const { error } = await supabase.from(TABLE).upsert(
+        {
+          user_id: currentUserId,
+          snap,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id' },
+      )
+      if (error && isMissingRelation(error)) tableMissing = true
+      else if (!error) return
+    } catch {
+      /* võrk */
+    }
+  }
+}
+
+export async function pullRemoteSnapshot(userId?: string | null): Promise<LiveSnapshot | null> {
+  const uid = userId ?? currentUserId
+  if (!isCloudEnabled() || !uid) return readStoredSnapshot()
+  const supabase = getSupabase()
+
+  if (!tableMissing) {
+    try {
+      const { data, error } = await supabase.from(TABLE).select('snap').eq('user_id', uid).maybeSingle()
+      if (error) {
+        if (isMissingRelation(error)) tableMissing = true
+      } else {
+        const snap = data?.snap as LiveSnapshot | undefined
+        if (snap?.v === 1) {
+          persistLocal(snap)
+          emit({ kind: 'snap', snap })
+          return snap
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  try {
+    const { data } = await supabase.from('user_app_state').select('state').eq('user_id', uid).maybeSingle()
+    const snap = liveFromState(data?.state)
+    if (snap) {
+      persistLocal(snap)
+      emit({ kind: 'snap', snap })
+      return snap
+    }
+  } catch {
+    /* ignore */
+  }
+  return readStoredSnapshot()
+}
+
 export async function connectLiveRemote(userId: string | null): Promise<void> {
   getBc()
   window.addEventListener('storage', onStorage)
+  currentUserId = userId
 
   if (!isCloudEnabled() || !userId) {
+    if (supabaseChannel && isCloudEnabled()) {
+      void getSupabase().removeChannel(supabaseChannel)
+    }
     supabaseChannel = null
     return
   }
 
   const supabase = getSupabase()
+  if (supabaseChannel) {
+    void supabase.removeChannel(supabaseChannel)
+    supabaseChannel = null
+  }
+
   const channel = supabase.channel(`salakivi-live-${userId}`, {
-    config: { broadcast: { ack: false, self: false } },
+    config: { broadcast: { ack: false, self: false }, presence: { key: userId } },
   })
   const live = channel as unknown as {
     on: (type: string, filter: { event: string }, fn: (payload: { payload?: Envelope }) => void) => void
-    subscribe: () => Promise<unknown>
+    subscribe: (cb?: (status: string) => void) => Promise<unknown>
     send: RealtimeChannel['send']
+    track?: (state: Record<string, unknown>) => Promise<unknown>
   }
   live.on('broadcast', { event: 'live' }, (payload) => {
     const env = payload.payload
@@ -105,6 +220,7 @@ export async function connectLiveRemote(userId: string | null): Promise<void> {
   })
   await live.subscribe()
   supabaseChannel = channel
+  void pullRemoteSnapshot(userId)
 }
 
 function onStorage(ev: StorageEvent): void {
@@ -125,17 +241,15 @@ function onStorage(ev: StorageEvent): void {
 }
 
 export function publishSnapshot(snap: LiveSnapshot): void {
-  try {
-    localStorage.setItem(SNAP_KEY, JSON.stringify(snap))
-  } catch {
-    /* ignore quota */
-  }
+  persistLocal(snap)
   getBc()?.postMessage({ kind: 'snap', snap } satisfies Envelope)
+  emit({ kind: 'snap', snap })
   void supabaseChannel?.send({
     type: 'broadcast',
     event: 'live',
     payload: { kind: 'snap', snap },
   })
+  void persistCloud(snap)
 }
 
 export function sendCommand(type: LiveCommand['type']): void {
@@ -150,6 +264,7 @@ export function sendCommand(type: LiveCommand['type']): void {
     /* ignore */
   }
   getBc()?.postMessage({ kind: 'cmd', cmd } satisfies Envelope)
+  emit({ kind: 'cmd', cmd })
   void supabaseChannel?.send({
     type: 'broadcast',
     event: 'live',
@@ -159,6 +274,8 @@ export function sendCommand(type: LiveCommand['type']): void {
 
 export function subscribeSnapshot(onSnap: (snap: LiveSnapshot) => void): () => void {
   snapListeners.add(onSnap)
+  const stored = readStoredSnapshot()
+  if (stored) onSnap(stored)
   return () => {
     snapListeners.delete(onSnap)
   }

@@ -43,7 +43,7 @@ salakivi-treening/
 
 See loob tabeli `user_app_state`, näidiskava (`program_template`), kasutajate nimekirja (`profiles`, sh nimi) ja reeglid (RLS), et iga kasutaja näeb **ainult oma** treeninguandmeid. Admin (Argo) näeb Seadetes registreerunud kasutajaid ja saab neile näidiskava anda.
 
-Kui äpp juba töötab: käivita **`supabase/migration_admin.sql`**, siis **`supabase/migration_names.sql`**.
+Kui äpp juba töötab: käivita **`supabase/migration_admin.sql`**, siis **`supabase/migration_names.sql`**, seejärel kellasünki jaoks **`supabase/migration_live.sql`**.
 
 ### 1.3 Võtmed
 

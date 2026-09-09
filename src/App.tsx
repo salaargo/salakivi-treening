@@ -20,13 +20,14 @@ import { TrainPhaseScreen } from './screens/TrainPhaseScreen'
 import { WeekScreen } from './screens/WeekScreen'
 import { WorkoutScreen } from './screens/WorkoutScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { StatsScreen } from './screens/StatsScreen'
 import { StopWorkoutControl } from './components/StopWorkoutControl'
 import { WatchRemoteScreen } from './screens/WatchRemoteScreen'
-import { isWatchMode, lockPortrait } from './orientation'
+import { isWatchMode, lockPortrait, useViewport, watchFace } from './orientation'
 import {
   connectLiveRemote,
-  readStoredSnapshot,
-  snapshotIsFresh,
+  pullRemoteSnapshot,
+  sendCommand,
   subscribeCommands,
   subscribeSnapshot,
   type LiveSnapshot,
@@ -35,6 +36,8 @@ import {
 export default function App() {
   const cloud = isCloudEnabled()
   const watchMode = isWatchMode()
+  const face = watchFace()
+  const viewport = useViewport()
   const [authReady, setAuthReady] = useState(!cloud)
   const [session, setSession] = useState<Session | null>(null)
   const [state, setState] = useState<AppState>(() => loadState())
@@ -43,10 +46,7 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null)
   const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [passwordRecovery, setPasswordRecovery] = useState(false)
-  const [followPhone, setFollowPhone] = useState(watchMode)
-  const [remoteSnap, setRemoteSnap] = useState<LiveSnapshot | null>(() =>
-    watchMode ? readStoredSnapshot() : null,
-  )
+  const [remoteSnap, setRemoteSnap] = useState<LiveSnapshot | null>(null)
   const skipCloudSave = useRef(true)
   const liveWorkoutLogRef = useRef<(() => DayLog | null) | null>(null)
   const registerLiveWorkoutLog = useCallback((getter: (() => DayLog | null) | null) => {
@@ -128,7 +128,14 @@ export default function App() {
 
   useEffect(() => {
     if (watchMode) return
-    void lockPortrait()
+    const lock = () => void lockPortrait()
+    lock()
+    window.addEventListener('orientationchange', lock)
+    window.addEventListener('resize', lock)
+    return () => {
+      window.removeEventListener('orientationchange', lock)
+      window.removeEventListener('resize', lock)
+    }
   }, [watchMode])
 
   useEffect(() => {
@@ -136,24 +143,27 @@ export default function App() {
   }, [userId])
 
   useEffect(() => {
-    if (!watchMode || !followPhone) return
+    if (!watchMode) return
     return subscribeSnapshot((snap) => setRemoteSnap(snap))
-  }, [watchMode, followPhone])
+  }, [watchMode])
+
+  useEffect(() => {
+    if (!watchMode) return
+    void pullRemoteSnapshot(userId)
+    sendCommand('sync')
+    const id = window.setInterval(() => {
+      void pullRemoteSnapshot(userId)
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [watchMode, userId])
 
   const stopTodayRef = useRef<() => void>(() => {})
-  const [, setWatchTick] = useState(0)
 
   useEffect(() => {
     return subscribeCommands((cmd) => {
       if (cmd.type === 'stop') stopTodayRef.current()
     })
   }, [])
-
-  useEffect(() => {
-    if (!watchMode || !followPhone) return
-    const id = window.setInterval(() => setWatchTick((n) => n + 1), 1000)
-    return () => window.clearInterval(id)
-  }, [watchMode, followPhone])
 
   const spotlight = useMemo(() => getSpotlightProgress(state), [state])
 
@@ -223,8 +233,14 @@ export default function App() {
 
   stopTodayRef.current = handleConfirmStopToday
 
-  const followingPhone = watchMode && followPhone && snapshotIsFresh(remoteSnap)
-  const shellClass = watchMode ? 'app-shell watch-mode' : 'app-shell'
+  const shellClass = [
+    'app-shell',
+    watchMode ? 'watch-mode' : '',
+    viewport.isDesktop ? 'is-desktop-shell' : '',
+    viewport.isPhone ? 'is-phone-shell' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   if (!authReady) {
     return (
@@ -255,103 +271,105 @@ export default function App() {
     )
   }
 
+  if (watchMode) {
+    return (
+      <div className={shellClass}>
+        <WatchRemoteScreen snap={remoteSnap} face={face} />
+      </div>
+    )
+  }
+
   return (
     <div className={shellClass}>
-      {!watchMode && (
-        <div className="rotate-lock" role="dialog" aria-label="Pööra telefon püsti">
-          <p className="rotate-lock-title">Pööra telefon püstiasendisse</p>
-          <p className="muted small">Treeningäpp on lukustatud püstivaatesse.</p>
-        </div>
+      <div className="rotate-lock" role="dialog" aria-label="Pööra telefon püsti">
+        <p className="rotate-lock-title">Pööra telefon püstiasendisse</p>
+        <p className="muted small">Treeningäpp on lukustatud püstivaatesse.</p>
+      </div>
+
+      {screen.name === 'workout' && <StopWorkoutControl onConfirmStop={handleConfirmStopToday} />}
+
+      {cloud && cloudStatus === 'error' && (
+        <p className="cloud-banner error">Pilve salvestamine ebaõnnestus. Proovi uuesti.</p>
       )}
 
-      {followingPhone && remoteSnap ? (
-        <WatchRemoteScreen snap={remoteSnap} onTrainHere={() => setFollowPhone(false)} />
-      ) : (
-        <>
-          <StopWorkoutControl onConfirmStop={handleConfirmStopToday} />
-
-          {cloud && cloudStatus === 'error' && (
-            <p className="cloud-banner error">Pilve salvestamine ebaõnnestus. Proovi uuesti.</p>
-          )}
-
-          {screen.name === 'home' && (
-            <HomeScreen
-              planName={spotlight?.plan.name ?? 'Kava'}
-              phaseName={spotlight?.progress.phase.name ?? '—'}
-              phaseHint={
-                spotlight
-                  ? `${spotlight.progress.phase.description} · nädal ${spotlight.progress.weekInPhase}/${spotlight.progress.phase.weeks}`
-                  : 'Lisa kavad ja pane need nädalapäevadele.'
-              }
-              userName={cloud ? displayName || undefined : undefined}
-              compact={watchMode}
-              onTrain={() => setScreen({ name: 'train-choice' })}
-              onSettings={() => setScreen({ name: 'settings' })}
-            />
-          )}
-
-          {screen.name === 'train-choice' && (
-            <TrainChoiceScreen
-              planName={spotlight?.plan.name ?? 'Kava'}
-              phaseName={spotlight?.progress.phase.name ?? '—'}
-              phaseHint={
-                spotlight
-                  ? `${spotlight.progress.phase.description} · nädal ${spotlight.progress.weekInPhase}/${spotlight.progress.phase.weeks}`
-                  : 'Faas jookseb kalendri järgi.'
-              }
-              onContinue={goToWeek}
-              onStartNewPhase={() => setScreen({ name: 'train-phase' })}
-              onBack={() => setScreen({ name: 'home' })}
-            />
-          )}
-
-          {screen.name === 'train-phase' && (
-            <TrainPhaseScreen
-              planName={spotlight?.plan.name ?? 'Kava'}
-              phases={state.phases}
-              onSelectPhase={handleStartPhase}
-              onBack={() => setScreen({ name: 'train-choice' })}
-            />
-          )}
-
-          {screen.name === 'week' && (
-            <WeekScreen
-              state={state}
-              weekOffset={weekOffset}
-              onWeekOffset={setWeekOffset}
-              onBack={() => setScreen({ name: 'train-choice' })}
-              onSelectDay={(dateKey) => setScreen({ name: 'workout', dateKey })}
-            />
-          )}
-
-          {screen.name === 'workout' && (
-            <WorkoutScreen
-              state={state}
-              dateKey={screen.dateKey}
-              onBack={() => setScreen({ name: 'week' })}
-              onFinish={() => setScreen({ name: 'home' })}
-              onUpdateLog={updateLog}
-              onChangeState={setState}
-              onRegisterLiveLog={registerLiveWorkoutLog}
-              compact={watchMode}
-            />
-          )}
-
-          {screen.name === 'settings' && (
-            <SettingsScreen
-              state={state}
-              onChange={setState}
-              onBack={() => setScreen({ name: 'home' })}
-              userEmail={cloud ? userEmail : undefined}
-              userId={cloud ? userId ?? undefined : undefined}
-              displayName={cloud ? displayName : undefined}
-              onDisplayNameChange={setDisplayName}
-              onLogout={cloud ? () => void handleLogout() : undefined}
-              isAdmin={cloud && isAdminEmail(userEmail)}
-            />
-          )}
-        </>
+      {screen.name === 'home' && (
+        <HomeScreen
+          planName={spotlight?.plan.name ?? 'Kava'}
+          phaseName={spotlight?.progress.phase.name ?? '—'}
+          phaseHint={
+            spotlight
+              ? `${spotlight.progress.phase.description} · nädal ${spotlight.progress.weekInPhase}/${spotlight.progress.phase.weeks}`
+              : 'Lisa kavad ja pane need nädalapäevadele.'
+          }
+          userName={cloud ? displayName || undefined : undefined}
+          onTrain={() => setScreen({ name: 'train-choice' })}
+          onSettings={() => setScreen({ name: 'settings' })}
+          onStats={viewport.isDesktop ? () => setScreen({ name: 'stats' }) : undefined}
+        />
       )}
+
+      {screen.name === 'train-choice' && (
+        <TrainChoiceScreen
+          planName={spotlight?.plan.name ?? 'Kava'}
+          phaseName={spotlight?.progress.phase.name ?? '—'}
+          phaseHint={
+            spotlight
+              ? `${spotlight.progress.phase.description} · nädal ${spotlight.progress.weekInPhase}/${spotlight.progress.phase.weeks}`
+              : 'Faas jookseb kalendri järgi.'
+          }
+          onContinue={goToWeek}
+          onStartNewPhase={() => setScreen({ name: 'train-phase' })}
+          onBack={() => setScreen({ name: 'home' })}
+        />
+      )}
+
+      {screen.name === 'train-phase' && (
+        <TrainPhaseScreen
+          planName={spotlight?.plan.name ?? 'Kava'}
+          phases={state.phases}
+          onSelectPhase={handleStartPhase}
+          onBack={() => setScreen({ name: 'train-choice' })}
+        />
+      )}
+
+      {screen.name === 'week' && (
+        <WeekScreen
+          state={state}
+          weekOffset={weekOffset}
+          onWeekOffset={setWeekOffset}
+          onBack={() => setScreen({ name: 'train-choice' })}
+          onSelectDay={(dateKey) => setScreen({ name: 'workout', dateKey })}
+        />
+      )}
+
+      {screen.name === 'workout' && (
+        <WorkoutScreen
+          state={state}
+          dateKey={screen.dateKey}
+          onBack={() => setScreen({ name: 'week' })}
+          onFinish={() => setScreen({ name: 'home' })}
+          onUpdateLog={updateLog}
+          onChangeState={setState}
+          onRegisterLiveLog={registerLiveWorkoutLog}
+        />
+      )}
+
+      {screen.name === 'settings' && (
+        <SettingsScreen
+          state={state}
+          onChange={setState}
+          onBack={() => setScreen({ name: 'home' })}
+          userEmail={cloud ? userEmail : undefined}
+          userId={cloud ? userId ?? undefined : undefined}
+          displayName={cloud ? displayName : undefined}
+          onDisplayNameChange={setDisplayName}
+          onLogout={cloud ? () => void handleLogout() : undefined}
+          isAdmin={cloud && isAdminEmail(userEmail)}
+          onStats={() => setScreen({ name: 'stats' })}
+        />
+      )}
+
+      {screen.name === 'stats' && <StatsScreen state={state} onBack={() => setScreen({ name: 'home' })} />}
     </div>
   )
 }

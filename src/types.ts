@@ -105,3 +105,4 @@ export type Screen =
   | { name: 'week' }
   | { name: 'workout'; dateKey: string }
   | { name: 'settings' }
+  | { name: 'stats' }

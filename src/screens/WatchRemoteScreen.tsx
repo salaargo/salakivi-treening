@@ -1,89 +1,87 @@
 import { useEffect, useState } from 'react'
 import type { LiveSnapshot } from '../live/remote'
 import { sendCommand } from '../live/remote'
+import { remainingRestSeconds } from '../components/RestTimer'
+import type { WatchFace } from '../orientation'
 
 interface WatchRemoteScreenProps {
-  snap: LiveSnapshot
-  onTrainHere: () => void
+  snap: LiveSnapshot | null
+  face: WatchFace
 }
 
-export function WatchRemoteScreen({ snap, onTrainHere }: WatchRemoteScreenProps) {
+function formatClock(totalSec: number): string {
+  const mm = String(Math.floor(Math.max(totalSec, 0) / 60)).padStart(2, '0')
+  const ss = String(Math.max(totalSec, 0) % 60).padStart(2, '0')
+  return `${mm}:${ss}`
+}
+
+export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
   const [, setTick] = useState(0)
 
   useEffect(() => {
-    if (snap.flow !== 'resting' || !snap.restEndsAt) return
     const id = window.setInterval(() => setTick((n) => n + 1), 250)
     return () => window.clearInterval(id)
-  }, [snap.flow, snap.restEndsAt])
+  }, [])
 
-  const restLeft =
-    snap.flow === 'resting' && snap.restEndsAt
-      ? Math.max(0, Math.ceil((snap.restEndsAt - Date.now()) / 1000))
-      : 0
-  const mm = String(Math.floor(restLeft / 60)).padStart(2, '0')
-  const ss = String(restLeft % 60).padStart(2, '0')
+  useEffect(() => {
+    sendCommand('sync')
+    const id = window.setInterval(() => sendCommand('sync'), 2500)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const flow = snap?.flow ?? 'idle'
+  const restLeft = snap?.restEndsAt ? remainingRestSeconds(snap.restEndsAt) : 0
+  const resting = flow === 'resting' && Boolean(snap?.restEndsAt) && restLeft > 0
+  const canStart = flow === 'ready' || (flow === 'resting' && restLeft <= 0)
+  const remainingReps = snap?.remainingReps
+  const remainingSets = snap?.remainingSets
+  const remaining =
+    remainingReps != null && remainingReps > 0
+      ? remainingReps === 1
+        ? 'Veel 1 kordus'
+        : `Veel ${remainingReps} kordust`
+      : remainingSets != null && remainingSets > 0
+        ? remainingSets === 1
+          ? 'Veel 1 seeria'
+          : `Veel ${remainingSets} seeriat`
+        : snap?.remainingHint || ''
 
   return (
-    <div className="screen watch-remote">
-      <p className="eyebrow">Kell · telefon</p>
-      <h2 className="watch-title">{snap.exerciseName ?? snap.planName ?? 'Treening'}</h2>
-      {snap.otherName && <p className="muted small">Segamini: {snap.otherName}</p>}
-
-      {snap.flow === 'resting' ? (
-        <>
-          <p className="watch-clock">
-            {mm}:{ss}
-          </p>
-          {snap.remainingHint && <p className="timer-remaining">{snap.remainingHint}</p>}
-          {snap.nextHint && <p className="muted small">{snap.nextHint}</p>}
-          <button type="button" className="btn btn-tehtud-lg" onClick={() => sendCommand('skip-rest')}>
-            Jäta paus vahele
-          </button>
-        </>
-      ) : (
-        <>
-          {snap.setNumber != null && (
-            <p className="watch-set">
-              Seeria {snap.setNumber}/{snap.totalRounds ?? '—'}
-            </p>
-          )}
-          {snap.remainingHint && <p className="muted small">{snap.remainingHint}</p>}
-          {snap.machineName && (
-            <p className="muted small">
-              {snap.machineName}
-              {snap.weightKg != null ? ` · ${snap.weightKg} kg` : ''}
-            </p>
-          )}
-          {snap.flow === 'ready' && (
-            <button type="button" className="btn btn-tehtud-lg" onClick={() => sendCommand('start')}>
-              Start
-            </button>
-          )}
-          {snap.flow === 'active' && (
-            <button type="button" className="btn btn-tehtud-lg" onClick={() => sendCommand('tehtud')}>
-              Tehtud
-            </button>
-          )}
-          {snap.flow === 'pick' && (
-            <p className="muted">Vali harjutus telefonis või treeni siin.</p>
-          )}
-          {snap.flow === 'sauna' && <p className="sauna-word">Sauna!</p>}
-        </>
-      )}
-
-      {(snap.flow === 'ready' || snap.flow === 'active') && (
-        <button
-          type="button"
-          className="btn btn-ghost full"
-          onClick={() => sendCommand('finish-exercise')}
-        >
-          Lõpeta harjutus
-        </button>
-      )}
-
-      <button type="button" className="btn btn-ghost full" onClick={onTrainHere}>
-        Treeni kellas, mitte telefonis
-      </button>
+    <div className={`watch-remote watch-face-${face}`}>
+      <div className="watch-bezel">
+        {resting ? (
+          <>
+            <p className="watch-clock">{formatClock(restLeft)}</p>
+            {remaining && <p className="watch-remain">{remaining}</p>}
+          </>
+        ) : (
+          <>
+            {remaining && flow !== 'idle' && flow !== 'pick' && (
+              <p className="watch-remain">{remaining}</p>
+            )}
+            {canStart && (
+              <button
+                type="button"
+                className="btn btn-tehtud-lg watch-start"
+                onClick={() => {
+                  if (flow === 'resting') sendCommand('skip-rest')
+                  sendCommand('start')
+                }}
+              >
+                Start
+              </button>
+            )}
+            {flow === 'active' && (
+              <button type="button" className="btn btn-tehtud-lg" onClick={() => sendCommand('tehtud')}>
+                Tehtud
+              </button>
+            )}
+            {flow === 'pick' && <p className="watch-wait">Vali harjutus telefonis</p>}
+            {flow === 'sauna' && <p className="watch-wait">Sauna!</p>}
+            {(flow === 'idle' || !snap) && <p className="watch-wait">Ootan telefoni…</p>}
+          </>
+        )}
+      </div>
     </div>
   )
 }

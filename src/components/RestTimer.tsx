@@ -58,12 +58,16 @@ export function RestTimer({
     document.addEventListener('visibilitychange', onWake)
     window.addEventListener('focus', onWake)
     window.addEventListener('pageshow', onWake)
+    document.addEventListener('resume', onWake)
+    window.addEventListener('online', onWake)
 
     return () => {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onWake)
       window.removeEventListener('focus', onWake)
       window.removeEventListener('pageshow', onWake)
+      document.removeEventListener('resume', onWake)
+      window.removeEventListener('online', onWake)
     }
   }, [endsAt])
 

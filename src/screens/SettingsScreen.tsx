@@ -34,6 +34,7 @@ interface SettingsScreenProps {
   onDisplayNameChange?: (name: string) => void
   onLogout?: () => void
   isAdmin?: boolean
+  onStats?: () => void
 }
 
 function newId(prefix: string): string {
@@ -50,6 +51,7 @@ export function SettingsScreen({
   onDisplayNameChange,
   onLogout,
   isAdmin = false,
+  onStats,
 }: SettingsScreenProps) {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null)
@@ -62,7 +64,8 @@ export function SettingsScreen({
   const editingPhase = state.phases.find((p) => p.id === editingPhaseId) ?? null
   const totalCycleWeeks = cycleWeeks(state.phases)
   const phaseProgress = getPhaseProgress(state)
-  const watchHref = watchUrl()
+  const galaxyHref = watchUrl('round')
+  const appleHref = watchUrl('square')
 
   useEffect(() => {
     setNameDraft(displayName)
@@ -815,31 +818,50 @@ export function SettingsScreen({
         >
           Kasutusjuhend (PDF)
         </a>
+        {onStats && (
+          <button type="button" className="btn btn-secondary full" onClick={onStats}>
+            Ajalugu / statistika
+          </button>
+        )}
       </section>
 
       <section className="settings-block">
         <h3>Nutikell</h3>
         <p className="muted small">
-          Wear OS / Samsung Galaxy Watch: ava kellas brauseris kellavaade (suured nupud). Kui oled
-          samasse kontosse sisse logitud, saab kell juhtida telefonis käivat treeningut (Start,
-          Tehtud, paus). Apple Watchi brauser on piiratud — seal ava sama link või treeni kellavaates
-          otse.
+          Avage kellas brauseris vastav kellavaade ja logige samasse kontosse. Telefonis valige
+          harjutus ja pink — kellas on ainult Start, Tehtud, pausitaimer ja järelejäänud kordused.
+          Galaxy Watch on ümmargune sihverplaat, Apple Watch kandiline.
         </p>
         <div className="home-actions">
-          <a className="btn btn-secondary full" href={watchHref}>
-            Ava kellavaade
+          <a className="btn btn-secondary full" href={galaxyHref}>
+            Galaxy Watch (ümar)
           </a>
           <button
             type="button"
             className="btn btn-ghost full"
             onClick={() => {
-              void navigator.clipboard?.writeText(watchHref).then(
-                () => window.alert('Kellavaate link on kopeeritud.'),
-                () => window.alert(watchHref),
+              void navigator.clipboard?.writeText(galaxyHref).then(
+                () => window.alert('Galaxy Watchi link on kopeeritud.'),
+                () => window.alert(galaxyHref),
               )
             }}
           >
-            Kopeeri kellalink
+            Kopeeri Galaxy link
+          </button>
+          <a className="btn btn-secondary full" href={appleHref}>
+            Apple Watch (kandiline)
+          </a>
+          <button
+            type="button"
+            className="btn btn-ghost full"
+            onClick={() => {
+              void navigator.clipboard?.writeText(appleHref).then(
+                () => window.alert('Apple Watchi link on kopeeritud.'),
+                () => window.alert(appleHref),
+              )
+            }}
+          >
+            Kopeeri Apple link
           </button>
         </div>
       </section>

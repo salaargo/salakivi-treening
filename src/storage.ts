@@ -29,7 +29,7 @@ import {
   suggestedWeight,
 } from './phases'
 import type { Phase } from './types'
-import { exerciseRounds, getPrimaryMachine } from './exercises'
+import { exerciseRounds, getMachine, getPrimaryMachine } from './exercises'
 
 const STORAGE_KEY = 'salakivi-treening-v9'
 const LEGACY_KEYS = [
@@ -520,17 +520,115 @@ export function addMachineToExercise(
   }
 }
 
-function buildExerciseLogSkeleton(ex: ExerciseTemplate, phase: Phase): ExerciseLog {
+function buildExerciseLogSkeleton(
+  ex: ExerciseTemplate,
+  phase: Phase,
+  state?: AppState,
+  dateKey?: string,
+): ExerciseLog {
   const machine = getPrimaryMachine(ex)
+  const weight =
+    state && dateKey
+      ? weightForSelectedMachine(state, ex, machine.id, dateKey, phase)
+      : suggestedWeight(machine.baseWeightKg, phase.weightMultiplier)
   return {
     exerciseId: ex.id,
     sets: Array.from({ length: exerciseRounds(ex) }, () => ({
       machineId: machine.id,
-      weightKg: suggestedWeight(machine.baseWeightKg, phase.weightMultiplier),
+      weightKg: weight,
       reps: phase.setsMin,
       completed: false,
     })),
   }
+}
+
+/** Viimati sellel pingil tehtud raskus (eelmine treening, mitte tänane). */
+export function lastWeightForMachine(
+  state: AppState,
+  exercise: ExerciseTemplate,
+  machineId: string,
+  beforeDateKey: string,
+): number | null {
+  const machine = getMachine(exercise, machineId) ?? getPrimaryMachine(exercise)
+  const namesMatch = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
+  const dates = Object.keys(state.logs)
+    .filter((key) => key < beforeDateKey)
+    .sort()
+    .reverse()
+
+  for (const dateKey of dates) {
+    const log = state.logs[dateKey]
+    const plan = getPlan(state, log.planId)
+    for (const entry of log.exercises) {
+      const template =
+        plan?.exercises.find((item) => item.id === entry.exerciseId) ??
+        state.plans.flatMap((p) => p.exercises).find((item) => item.id === entry.exerciseId)
+      const sameExercise =
+        entry.exerciseId === exercise.id ||
+        Boolean(template && namesMatch(template.name, exercise.name))
+      if (!sameExercise) continue
+      const completed = entry.sets.filter((set) => {
+        if (!set.completed) return false
+        if (set.machineId === machine.id) return true
+        const setMachine = template ? getMachine(template, set.machineId) : undefined
+        return Boolean(setMachine && namesMatch(setMachine.name, machine.name))
+      })
+      if (completed.length) return completed[completed.length - 1].weightKg
+    }
+  }
+  return null
+}
+
+export function weightForSelectedMachine(
+  state: AppState,
+  exercise: ExerciseTemplate,
+  machineId: string,
+  dateKey: string,
+  phase: Phase,
+): number {
+  const last = lastWeightForMachine(state, exercise, machineId, dateKey)
+  if (last != null) return last
+  const machine = getMachine(exercise, machineId) ?? getPrimaryMachine(exercise)
+  return suggestedWeight(machine.baseWeightKg, phase.weightMultiplier)
+}
+
+export interface HistoryRow {
+  dateKey: string
+  planName: string
+  exerciseName: string
+  machineName: string
+  setNumber: number
+  weightKg: number
+  reps: number
+  completed: boolean
+}
+
+export function buildHistoryRows(state: AppState): HistoryRow[] {
+  const rows: HistoryRow[] = []
+  const dates = Object.keys(state.logs).sort().reverse()
+  for (const dateKey of dates) {
+    const log = state.logs[dateKey]
+    const plan = getPlan(state, log.planId)
+    for (const entry of log.exercises) {
+      const ex =
+        plan?.exercises.find((item) => item.id === entry.exerciseId) ??
+        state.plans.flatMap((p) => p.exercises).find((item) => item.id === entry.exerciseId)
+      entry.sets.forEach((set, index) => {
+        const machine = ex ? getMachine(ex, set.machineId) : undefined
+        rows.push({
+          dateKey,
+          planName: plan?.name ?? 'Kava',
+          exerciseName: ex?.name ?? 'Harjutus',
+          machineName: machine?.name ?? 'Pink',
+          setNumber: index + 1,
+          weightKg: set.weightKg,
+          reps: set.reps,
+          completed: set.completed,
+        })
+      })
+    }
+  }
+  return rows
 }
 
 export function isExerciseLogDone(log: DayLog, exerciseId: string): boolean {
@@ -556,7 +654,7 @@ export function ensureDayLog(state: AppState, dateKey: string): DayLog | null {
     dateKey,
     planId: plan.id,
     phaseId: phase.id,
-    exercises: plan.exercises.map((ex) => buildExerciseLogSkeleton(ex, phase)),
+    exercises: plan.exercises.map((ex) => buildExerciseLogSkeleton(ex, phase, state, dateKey)),
   }
 }
 

@@ -1,6 +1,7 @@
 interface HomeScreenProps {
   onTrain: () => void
   onSettings: () => void
+  onStats?: () => void
   planName: string
   phaseName: string
   phaseHint: string
@@ -11,6 +12,7 @@ interface HomeScreenProps {
 export function HomeScreen({
   onTrain,
   onSettings,
+  onStats,
   planName,
   phaseName,
   phaseHint,
@@ -37,6 +39,11 @@ export function HomeScreen({
         <button type="button" className="btn btn-hero" onClick={onTrain}>
           Treenima
         </button>
+        {onStats && (
+          <button type="button" className="btn btn-secondary" onClick={onStats}>
+            Ajalugu
+          </button>
+        )}
         <button type="button" className="btn btn-secondary" onClick={onSettings}>
           Seaded
         </button>

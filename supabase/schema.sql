@@ -149,6 +149,35 @@ grant select, insert, update on public.profiles to authenticated;
 grant select, insert, update on public.program_template to authenticated;
 grant execute on function public.is_salakivi_admin() to authenticated;
 
+create table if not exists public.live_remote (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  snap jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.live_remote enable row level security;
+
+drop policy if exists "Users read own live" on public.live_remote;
+create policy "Users read own live"
+  on public.live_remote
+  for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users upsert own live" on public.live_remote;
+create policy "Users upsert own live"
+  on public.live_remote
+  for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users update own live" on public.live_remote;
+create policy "Users update own live"
+  on public.live_remote
+  for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+grant select, insert, update on public.live_remote to authenticated;
+
 create or replace function public.apply_program_template_to_user(target_user_id uuid)
 returns void
 language plpgsql

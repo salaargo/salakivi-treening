@@ -732,12 +732,13 @@ select:focus {
 
 .btn-stopp {
   position: fixed;
-  right: 0.85rem;
-  bottom: 1rem;
+  right: 0.75rem;
+  top: calc(0.5rem + var(--safe-top));
+  bottom: auto;
   z-index: 50;
   border: none;
   border-radius: 999px;
-  padding: 0.65rem 1.05rem;
+  padding: 0.55rem 1rem;
   background: #c62828;
   color: #fff;
   font: inherit;
@@ -745,6 +746,10 @@ select:focus {
   letter-spacing: 0.04em;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   cursor: pointer;
+}
+
+.is-phone-shell .topbar {
+  padding-right: 5.4rem;
 }
 
 .btn-stopp:active {
@@ -1284,6 +1289,11 @@ select:focus {
   touch-action: none;
 }
 
+.btn-tehtud-lg.watch-start {
+  background: var(--start);
+  color: #052e16;
+}
+
 a.btn {
   text-decoration: none;
   color: inherit;
@@ -1291,6 +1301,86 @@ a.btn {
 
 .rotate-lock {
   display: none;
+}
+
+html.is-phone.is-landscape .rotate-lock {
+  display: none;
+}
+
+html.is-watch .rotate-lock,
+html.is-desktop .rotate-lock {
+  display: none !important;
+}
+
+html.is-phone.is-landscape,
+html.is-phone.is-landscape body {
+  width: 100dvh;
+  height: 100dvw;
+  overflow: hidden;
+}
+
+html.is-phone.is-landscape #root {
+  position: fixed;
+  top: 0;
+  left: 100%;
+  width: 100dvh;
+  height: 100dvw;
+  transform: rotate(90deg);
+  transform-origin: top left;
+  overflow: auto;
+}
+
+.watch-remote {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 0.35rem;
+}
+
+.watch-bezel {
+  width: min(100vw, 100dvh);
+  height: min(100vw, 100dvh);
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 14%;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.watch-face-round .watch-bezel {
+  border-radius: 50%;
+  background: #0c100a;
+  border: 7px solid #2c3822;
+  box-shadow: inset 0 0 0 2px #1a2214;
+}
+
+.watch-face-square .watch-bezel {
+  border-radius: 22%;
+  background: #0c100a;
+  border: 5px solid #2c3822;
+}
+
+.watch-remain {
+  margin: 0;
+  font-weight: 800;
+  font-size: clamp(0.95rem, 5vw, 1.2rem);
+}
+
+.watch-wait {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.watch-mode .btn-tehtud-lg {
+  min-height: 3rem;
+  font-size: 1.15rem;
+  border-radius: 14px;
 }
 
 .watch-remote {
@@ -1304,9 +1394,9 @@ a.btn {
 }
 
 .watch-clock {
-  margin: 0.4rem 0;
+  margin: 0.2rem 0;
   font-family: var(--display);
-  font-size: 3.4rem;
+  font-size: clamp(2.4rem, 22vw, 3.6rem);
   letter-spacing: 0.04em;
   text-align: center;
 }
@@ -1320,6 +1410,7 @@ a.btn {
 .watch-mode .app-shell,
 .watch-mode {
   max-width: 100%;
+  padding: 0.25rem;
 }
 
 .watch-mode .brand {
@@ -1335,27 +1426,65 @@ a.btn {
   font-size: 1.05rem;
 }
 
-@media (orientation: landscape) and (max-height: 520px) {
-  .rotate-lock {
-    display: grid;
-    place-items: center;
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    background: rgba(8, 10, 6, 0.96);
-    text-align: center;
-    padding: 1.5rem;
-  }
-
-  .watch-mode .rotate-lock {
-    display: none;
-  }
-}
-
 .rotate-lock-title {
   margin: 0 0 0.4rem;
   font-family: var(--display);
   font-size: 2rem;
+}
+
+.stats-table-wrap {
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid var(--surface-2);
+  background: var(--surface);
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.stats-table th,
+.stats-table td {
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid var(--surface-2);
+  white-space: nowrap;
+}
+
+.stats-table th {
+  color: var(--muted);
+  font-weight: 600;
+  background: var(--bg-elevated);
+  position: sticky;
+  top: 0;
+}
+
+.stats-table tr.is-missed td {
+  color: var(--danger);
+}
+
+html.is-desktop .app-shell,
+.app-shell.is-desktop-shell {
+  max-width: 1100px;
+  padding: 1.5rem 2rem 2.25rem;
+}
+
+html.is-desktop .home-screen {
+  min-height: calc(100dvh - 4rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18rem;
+  align-items: center;
+  gap: 2rem;
+}
+
+html.is-desktop .home-actions {
+  min-width: 16rem;
+}
+
+html.is-desktop .stats-screen {
+  gap: 1.1rem;
 }
 
 @media (min-width: 480px) {
