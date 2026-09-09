@@ -22,7 +22,8 @@ Ava `http://localhost:43173`.
 - **Tehtud** on suur nupp ekraani allosas.
 - Telefon lukustatakse püstiasendisse (PWA / Android). Põikivaates palutakse telefon pöörata.
 - **Nutikell:** Seaded → Ava kellavaade (`?kell=1`). Wear OS / Samsungi kellas ava link brauseris. Kui oled samasse kontosse sisse logitud, saab kell juhtida telefoni treeningut.
-- **Uus kasutaja** saab Argo praegused treeningkavad näidiseks (ilma logideta). Konto loomisel küsitakse nime; avalehel on nt „Tere, Argo“.
+- **Faasid** on vabalt muudetavad: Seaded → Faasid → Lisa / muuda / kustuta / järjekord.
+- **Pausitaimer** käib kella järgi: ekraani kustumine ei peata pausi — äratamisel näed järelejäänud aega (või paus on juba läbi).
 - **Admin (Argo):** Seaded → kasutajate nimekiri (nimi, e-post, viimane kasutus) ja nupp olemasolevale kasutajale näidiskava andmiseks.
 
 ## Build

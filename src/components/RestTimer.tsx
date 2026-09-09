@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
 interface RestTimerProps {
-  seconds: number
+  /** Pausi lõpp (Date.now() + kestus). Jääb käima ka siis, kui ekraan kustub. */
+  endsAt: number
+  /** Algne + lisatud sekundid, rõnga jaoks. */
+  durationSeconds: number
   onComplete: () => void
   onSkip?: () => void
+  onExtend?: (seconds: number) => void
   remainingHint?: string
   nextHint?: string
 }
@@ -16,30 +20,55 @@ function vibrate() {
   }
 }
 
-export function RestTimer({ seconds, onComplete, onSkip, remainingHint, nextHint }: RestTimerProps) {
-  const [left, setLeft] = useState(seconds)
+export function remainingRestSeconds(endsAt: number, now = Date.now()): number {
+  return Math.max(0, Math.ceil((endsAt - now) / 1000))
+}
+
+export function RestTimer({
+  endsAt,
+  durationSeconds,
+  onComplete,
+  onSkip,
+  onExtend,
+  remainingHint,
+  nextHint,
+}: RestTimerProps) {
   const finishedRef = useRef(false)
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
 
+  const [left, setLeft] = useState(() => remainingRestSeconds(endsAt))
+
   useEffect(() => {
-    setLeft(seconds)
     finishedRef.current = false
-  }, [seconds])
 
-  useEffect(() => {
-    if (left > 0) {
-      const t = window.setTimeout(() => setLeft((v) => v - 1), 1000)
-      return () => window.clearTimeout(t)
+    const tick = () => {
+      const next = remainingRestSeconds(endsAt)
+      setLeft(next)
+      if (next <= 0 && !finishedRef.current) {
+        finishedRef.current = true
+        vibrate()
+        onCompleteRef.current()
+      }
     }
-    if (!finishedRef.current) {
-      finishedRef.current = true
-      vibrate()
-      onCompleteRef.current()
-    }
-  }, [left])
 
-  const progress = seconds > 0 ? left / seconds : 0
+    tick()
+    const id = window.setInterval(tick, 250)
+    const onWake = () => tick()
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    window.addEventListener('pageshow', onWake)
+
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+      window.removeEventListener('pageshow', onWake)
+    }
+  }, [endsAt])
+
+  const total = Math.max(1, durationSeconds)
+  const progress = Math.min(1, left / total)
   const mm = String(Math.floor(Math.max(left, 0) / 60)).padStart(2, '0')
   const ss = String(Math.max(left, 0) % 60).padStart(2, '0')
 
@@ -62,7 +91,11 @@ export function RestTimer({ seconds, onComplete, onSkip, remainingHint, nextHint
         {remainingHint && <p className="timer-remaining">{remainingHint}</p>}
         {nextHint && <p className="muted small timer-next">{nextHint}</p>}
         <div className="timer-actions">
-          <button type="button" className="btn btn-ghost" onClick={() => setLeft((v) => v + 15)}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => onExtend?.(15)}
+          >
             +15s
           </button>
           {onSkip && (

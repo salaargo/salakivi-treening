@@ -13,7 +13,9 @@ import { createEmptyWeekTemplate, weekdayFull } from '../dates'
 import {
   buildPhaseDescription,
   cycleWeeks,
+  createPhase,
   DEFAULT_REST_SECONDS,
+  phaseToneKey,
 } from '../phases'
 import { createMachine, withDefaultMachine } from '../exercises'
 import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
@@ -100,6 +102,29 @@ export function SettingsScreen({
         return next
       }),
     })
+  }
+
+  function addPhase() {
+    const phase = createPhase(`Faas ${state.phases.length + 1}`)
+    onChange({ ...state, phases: [...state.phases, phase] })
+    setEditingPhaseId(phase.id)
+  }
+
+  function removePhase(phaseId: PhaseId) {
+    if (state.phases.length <= 1) return
+    const phases = state.phases.filter((p) => p.id !== phaseId)
+    onChange({ ...state, phases })
+    if (editingPhaseId === phaseId) setEditingPhaseId(null)
+  }
+
+  function movePhase(phaseId: PhaseId, direction: -1 | 1) {
+    const index = state.phases.findIndex((p) => p.id === phaseId)
+    const nextIndex = index + direction
+    if (index < 0 || nextIndex < 0 || nextIndex >= state.phases.length) return
+    const phases = [...state.phases]
+    const [item] = phases.splice(index, 1)
+    phases.splice(nextIndex, 0, item)
+    onChange({ ...state, phases })
   }
 
   function updatePlan(planId: string, patch: Partial<WorkoutPlan>) {
@@ -296,7 +321,7 @@ export function SettingsScreen({
         </header>
 
         <div className="settings-block">
-          <span className="phase-pill" data-phase={editingPhase.id}>
+          <span className="phase-pill" data-phase={phaseToneKey(editingPhase.id)}>
             {editingPhase.name}
           </span>
           <p className="muted small">{editingPhase.description}</p>
@@ -418,6 +443,41 @@ export function SettingsScreen({
             </button>
           </div>
         </div>
+
+        <div className="field-row field-row-2">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => movePhase(editingPhase.id, -1)}
+            disabled={state.phases[0]?.id === editingPhase.id}
+          >
+            Üles
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => movePhase(editingPhase.id, 1)}
+            disabled={state.phases[state.phases.length - 1]?.id === editingPhase.id}
+          >
+            Alla
+          </button>
+        </div>
+        <p className="muted small">Järjekord määrab, millises järjestuses faasid kalendris käivad.</p>
+
+        {state.phases.length > 1 && (
+          <button
+            type="button"
+            className="btn btn-ghost danger full"
+            onClick={() => {
+              const ok = window.confirm(
+                `Kustuta faas „${editingPhase.name}”? Ring jookseb ülejäänud faasidega.`,
+              )
+              if (ok) removePhase(editingPhase.id)
+            }}
+          >
+            Kustuta faas
+          </button>
+        )}
       </div>
     )
   }
@@ -895,7 +955,7 @@ export function SettingsScreen({
                   <p className="plan-name">{p.name}</p>
                   <p className="muted small">{p.exercises.length} harjutust · muuda nime ›</p>
                 </div>
-                <span className="phase-pill" data-phase={phaseProgress.phase.id}>
+                <span className="phase-pill" data-phase={phaseToneKey(phaseProgress.phase.id)}>
                   {phaseProgress.phase.name}
                 </span>
               </button>
@@ -905,10 +965,14 @@ export function SettingsScreen({
       </section>
 
       <section className="settings-block">
-        <h3>Faasid</h3>
+        <div className="section-head">
+          <h3>Faasid</h3>
+          <button type="button" className="btn btn-secondary" onClick={addPhase}>
+            Lisa
+          </button>
+        </div>
         <p className="muted small">
-          Muuda kestust, kordusi ja raskust. Ring kokku {totalCycleWeeks} nädalat, siis algab
-          uuesti.
+          Lisa, muuda või kustuta faase. Ring kokku {totalCycleWeeks} nädalat, siis algab uuesti.
         </p>
         <ul className="plan-list">
           {state.phases.map((p) => (
@@ -921,7 +985,7 @@ export function SettingsScreen({
                     {Math.round(p.weightMultiplier * 100)}%
                   </p>
                 </div>
-                <span className="phase-pill" data-phase={p.id}>
+                <span className="phase-pill" data-phase={phaseToneKey(p.id)}>
                   {p.name}
                 </span>
               </button>

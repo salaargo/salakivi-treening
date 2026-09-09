@@ -181,55 +181,58 @@ function normalizeWeeks(
 }
 
 function isPhaseId(value: unknown): value is PhaseId {
-  return value === 'start' || value === 'treening' || value === 'power' || value === 'taastus'
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function parsePhase(item: unknown): Phase | null {
+  if (!item || typeof item !== 'object') return null
+  const p = item as Record<string, unknown>
+  if (!isPhaseId(p.id)) return null
+  const weeks = typeof p.weeks === 'number' && p.weeks > 0 ? Math.round(p.weeks) : 1
+  let setsMin =
+    typeof p.setsMin === 'number' && p.setsMin > 0
+      ? Math.round(p.setsMin)
+      : typeof p.repsMin === 'number'
+        ? Math.round(p.repsMin)
+        : 6
+  let setsMax =
+    typeof p.setsMax === 'number' && p.setsMax > 0
+      ? Math.round(p.setsMax)
+      : typeof p.repsMax === 'number'
+        ? Math.round(p.repsMax)
+        : typeof p.sets === 'number'
+          ? Math.round(p.sets)
+          : setsMin
+  if (setsMax < setsMin) setsMax = setsMin
+  const weightMultiplier =
+    typeof p.weightMultiplier === 'number' && p.weightMultiplier > 0 ? p.weightMultiplier : 1
+  const name = typeof p.name === 'string' && p.name.trim() ? p.name.trim() : p.id
+  const phase: Phase = {
+    id: p.id.trim(),
+    name,
+    weeks,
+    setsMin,
+    setsMax,
+    weightMultiplier,
+    description: '',
+  }
+  phase.description = buildPhaseDescription(phase)
+  return phase
 }
 
 function normalizePhases(raw: unknown): Phase[] {
-  const byId = new Map<PhaseId, Phase>()
   if (Array.isArray(raw)) {
+    const seen = new Set<string>()
+    const parsed: Phase[] = []
     for (const item of raw) {
-      if (!item || typeof item !== 'object') continue
-      const p = item as Record<string, unknown>
-      if (!isPhaseId(p.id)) continue
-      const weeks = typeof p.weeks === 'number' && p.weeks > 0 ? Math.round(p.weeks) : 1
-      let setsMin =
-        typeof p.setsMin === 'number' && p.setsMin > 0
-          ? Math.round(p.setsMin)
-          : typeof p.repsMin === 'number'
-            ? Math.round(p.repsMin)
-            : 6
-      let setsMax =
-        typeof p.setsMax === 'number' && p.setsMax > 0
-          ? Math.round(p.setsMax)
-          : typeof p.repsMax === 'number'
-            ? Math.round(p.repsMax)
-            : typeof p.sets === 'number'
-              ? Math.round(p.sets)
-              : setsMin
-      if (setsMax < setsMin) setsMax = setsMin
-      const weightMultiplier =
-        typeof p.weightMultiplier === 'number' && p.weightMultiplier > 0
-          ? p.weightMultiplier
-          : 1
-      const name = typeof p.name === 'string' && p.name.trim() ? p.name.trim() : p.id
-      const phase: Phase = {
-        id: p.id,
-        name,
-        weeks,
-        setsMin,
-        setsMax,
-        weightMultiplier,
-        description: '',
-      }
-      phase.description = buildPhaseDescription(phase)
-      byId.set(p.id, phase)
+      const phase = parsePhase(item)
+      if (!phase || seen.has(phase.id)) continue
+      seen.add(phase.id)
+      parsed.push(phase)
     }
+    if (parsed.length > 0) return parsed
   }
-
-  return DEFAULT_PHASES.map((def) => {
-    const custom = byId.get(def.id)
-    return custom ? { ...custom } : { ...def }
-  })
+  return DEFAULT_PHASES.map((def) => ({ ...def }))
 }
 
 function normalizeLogs(

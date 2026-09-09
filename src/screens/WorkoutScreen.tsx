@@ -8,11 +8,11 @@ import {
   getPhaseProgress,
 } from '../storage'
 import { createMachine, exerciseRounds, getMachine, getPrimaryMachine } from '../exercises'
-import { suggestedWeight } from '../phases'
+import { suggestedWeight, phaseToneKey } from '../phases'
 import { RestTimer } from '../components/RestTimer'
 import { afterSetAction } from '../workoutFlow'
 import { publishSnapshot, subscribeCommands, type LiveCommand } from '../live/remote'
-import { isWatchMode } from '../orientation'
+import { isWatchMode, useScreenWakeLock } from '../orientation'
 
 interface WorkoutScreenProps {
   state: AppState
@@ -181,6 +181,9 @@ export function WorkoutScreen({
   const [restEndsAt, setRestEndsAt] = useState<number | null>(null)
   const [showSetMenu, setShowSetMenu] = useState(false)
   const [addPink, setAddPink] = useState<AddPinkForm | null>(null)
+  useScreenWakeLock(
+    Boolean(plan && (flow === 'ready' || flow === 'active' || flow === 'resting')),
+  )
 
   const longPressTimer = useRef<number | null>(null)
   const longPressFired = useRef(false)
@@ -253,6 +256,11 @@ export function WorkoutScreen({
     }
     setFlow('ready')
   }, [])
+
+  function extendRest(seconds: number) {
+    setRestEndsAt((t) => (t ?? Date.now()) + seconds * 1000)
+    setRestSeconds((s) => s + seconds)
+  }
 
   const currentExIndex = selected[activeSlot] ?? selected[0]
   const currentEx: ExerciseTemplate | undefined =
@@ -731,11 +739,13 @@ export function WorkoutScreen({
     return (
       <div className="screen workout-screen">
         <RestTimer
-          seconds={restSeconds}
+          endsAt={restEndsAt ?? Date.now() + restSeconds * 1000}
+          durationSeconds={Math.max(1, restSeconds)}
           remainingHint={restHint}
           nextHint={restNext}
           onComplete={endRest}
           onSkip={endRest}
+          onExtend={extendRest}
         />
       </div>
     )
@@ -759,7 +769,7 @@ export function WorkoutScreen({
               Start
             </button>
           ) : (
-            <span className="phase-pill" data-phase={phase.id}>
+            <span className="phase-pill" data-phase={phaseToneKey(phase.id)}>
               {phase.name}
             </span>
           )}

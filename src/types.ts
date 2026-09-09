@@ -1,4 +1,4 @@
-export type PhaseId = 'start' | 'treening' | 'power' | 'taastus'
+export type PhaseId = string
 
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6 // Sun–Sat
 

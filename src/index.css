@@ -860,6 +860,26 @@ select:focus {
   color: var(--taastus);
 }
 
+.phase-pill[data-phase='lime'] {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.phase-pill[data-phase='violet'] {
+  background: color-mix(in srgb, #c084fc 25%, transparent);
+  color: #c084fc;
+}
+
+.phase-pill[data-phase='gold'] {
+  background: color-mix(in srgb, #f5e06a 28%, transparent);
+  color: #f5e06a;
+}
+
+.phase-pill[data-phase='teal'] {
+  background: color-mix(in srgb, #2dd4bf 25%, transparent);
+  color: #2dd4bf;
+}
+
 .done-tag {
   margin: 0;
   color: var(--accent);

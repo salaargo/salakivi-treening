@@ -97,3 +97,30 @@ export function suggestedWeight(baseKg: number, multiplier: number): number {
   const raw = baseKg * multiplier
   return Math.round(raw * 2) / 2
 }
+
+const KNOWN_PHASE_TONES = new Set(['start', 'treening', 'power', 'taastus'])
+const EXTRA_PHASE_TONES = ['lime', 'violet', 'gold', 'teal'] as const
+
+/** CSS data-phase võti — tuntud faasid hoiavad värvi, uued saavad tooni id järgi. */
+export function phaseToneKey(id: string): string {
+  if (KNOWN_PHASE_TONES.has(id)) return id
+  let hash = 0
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 33 + id.charCodeAt(i)) >>> 0
+  }
+  return EXTRA_PHASE_TONES[hash % EXTRA_PHASE_TONES.length]
+}
+
+export function createPhase(name = 'Uus faas'): Phase {
+  const phase: Phase = {
+    id: `phase-${Math.random().toString(36).slice(2, 9)}`,
+    name,
+    weeks: 1,
+    setsMin: 8,
+    setsMax: 10,
+    weightMultiplier: 1,
+    description: '',
+  }
+  phase.description = buildPhaseDescription(phase)
+  return phase
+}

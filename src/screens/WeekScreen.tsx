@@ -7,13 +7,8 @@ import {
   weekdayFull,
   weekdayLabel,
 } from '../dates'
-import {
-  getPlanForDate,
-  getPhaseForDate,
-  getWeekTemplateForDate,
-  todayKey,
-  dayLogHasIncomplete,
-} from '../storage'
+import { getPlanForDate, getPhaseForDate, getWeekTemplateForDate, todayKey, dayLogHasIncomplete } from '../storage'
+import { phaseToneKey } from '../phases'
 
 interface WeekScreenProps {
   state: AppState
@@ -88,7 +83,7 @@ export function WeekScreen({
                 <div className="day-card-right">
                   {plan && phase ? (
                     <>
-                      <span className="phase-pill" data-phase={phase.id}>
+                      <span className="phase-pill" data-phase={phaseToneKey(phase.id)}>
                         {phase.name}
                       </span>
                       <p className="day-plan">{plan.name}</p>

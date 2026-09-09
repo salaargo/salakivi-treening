@@ -1,4 +1,5 @@
 import type { Phase, PhaseId } from '../types'
+import { phaseToneKey } from '../phases'
 
 interface TrainPhaseScreenProps {
   planName: string
@@ -38,7 +39,7 @@ export function TrainPhaseScreen({
               className="phase-pick-btn"
               onClick={() => onSelectPhase(phase.id)}
             >
-              <span className="phase-pill" data-phase={phase.id}>
+              <span className="phase-pill" data-phase={phaseToneKey(phase.id)}>
                 {phase.name}
               </span>
               <span className="phase-pick-meta">
