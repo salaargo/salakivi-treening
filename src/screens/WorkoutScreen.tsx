@@ -151,11 +151,9 @@ function remainingSetsHint(
 ): string {
   const parts = remainingSetParts(log, items)
   if (parts.length === 0) return 'Seeriad tehtud'
-  if (parts.length === 1) {
-    const n = parts[0].left
-    return n === 1 ? 'Veel 1 seeria' : `Veel ${n} seeriat`
-  }
-  return `Veel seeriaid: ${parts.map((p) => `${p.name} ${p.left}`).join(' · ')}`
+  return parts
+    .map((p) => `${p.name} · ${p.left} ${p.left === 1 ? 'seeria' : 'seeriat'}`)
+    .join('\n')
 }
 
 export function WorkoutScreen({

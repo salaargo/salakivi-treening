@@ -1,5 +1,6 @@
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { isWatchMode } from '../orientation'
 
 export type RemoteCommandType = 'start' | 'tehtud' | 'skip-rest' | 'finish-exercise' | 'stop' | 'sync'
 
@@ -19,6 +20,7 @@ export interface LiveSnapshot {
   restSeconds?: number
   restEndsAt?: number
   remainingSets?: number
+  seq?: number
   weightKg?: number
   machineName?: string
 }
@@ -45,11 +47,31 @@ let supabaseChannel: RealtimeChannel | null = null
 let currentUserId: string | null = null
 let tableMissing = false
 let lastSnap: LiveSnapshot | null = null
+let publishSeq = 0
+
+function snapRank(snap: LiveSnapshot): number {
+  return snap.seq ?? snap.at
+}
+
+/** Vanem hetkeseis ei tohi kella Start/Tehtud peale tagasi keerata. */
+function applySnap(snap: LiveSnapshot): boolean {
+  if (!snap || snap.v !== 1) return false
+  if (lastSnap && snapRank(snap) < snapRank(lastSnap)) return false
+  lastSnap = snap
+  if (!isWatchMode()) {
+    try {
+      localStorage.setItem(SNAP_KEY, JSON.stringify(snap))
+    } catch {
+      /* ignore quota */
+    }
+  }
+  snapListeners.forEach((fn) => fn(snap))
+  return true
+}
 
 function emit(env: Envelope): void {
   if (env.kind === 'snap') {
-    lastSnap = env.snap
-    snapListeners.forEach((fn) => fn(env.snap))
+    applySnap(env.snap)
     return
   }
   if (!env.cmd?.id || seenCommands.has(env.cmd.id)) return
@@ -94,6 +116,7 @@ export function snapshotIsFresh(snap: LiveSnapshot | null, now = Date.now()): sn
 
 export function readStoredSnapshot(): LiveSnapshot | null {
   if (lastSnap) return lastSnap
+  if (isWatchMode()) return null
   try {
     const raw = localStorage.getItem(SNAP_KEY)
     if (!raw) return null
@@ -105,15 +128,6 @@ export function readStoredSnapshot(): LiveSnapshot | null {
     return null
   } catch {
     return null
-  }
-}
-
-function persistLocal(snap: LiveSnapshot): void {
-  lastSnap = snap
-  try {
-    localStorage.setItem(SNAP_KEY, JSON.stringify(snap))
-  } catch {
-    /* ignore quota */
   }
 }
 
@@ -162,9 +176,8 @@ export async function pullRemoteSnapshot(userId?: string | null): Promise<LiveSn
       } else {
         const snap = data?.snap as LiveSnapshot | undefined
         if (snap?.v === 1) {
-          persistLocal(snap)
-          emit({ kind: 'snap', snap })
-          return snap
+          applySnap(snap)
+          return lastSnap
         }
       }
     } catch {
@@ -176,9 +189,8 @@ export async function pullRemoteSnapshot(userId?: string | null): Promise<LiveSn
     const { data } = await supabase.from('user_app_state').select('state').eq('user_id', uid).maybeSingle()
     const snap = liveFromState(data?.state)
     if (snap) {
-      persistLocal(snap)
-      emit({ kind: 'snap', snap })
-      return snap
+      applySnap(snap)
+      return lastSnap
     }
   } catch {
     /* ignore */
@@ -241,15 +253,15 @@ function onStorage(ev: StorageEvent): void {
 }
 
 export function publishSnapshot(snap: LiveSnapshot): void {
-  persistLocal(snap)
-  getBc()?.postMessage({ kind: 'snap', snap } satisfies Envelope)
-  emit({ kind: 'snap', snap })
+  const stamped: LiveSnapshot = { ...snap, seq: ++publishSeq, at: Date.now() }
+  applySnap(stamped)
+  getBc()?.postMessage({ kind: 'snap', snap: stamped } satisfies Envelope)
   void supabaseChannel?.send({
     type: 'broadcast',
     event: 'live',
-    payload: { kind: 'snap', snap },
+    payload: { kind: 'snap', snap: stamped },
   })
-  void persistCloud(snap)
+  void persistCloud(stamped)
 }
 
 export function sendCommand(type: LiveCommand['type']): void {

@@ -1257,6 +1257,7 @@ select:focus {
   text-align: center;
   font-size: 1.15rem;
   font-weight: 700;
+  white-space: pre-line;
 }
 
 .timer-next {
@@ -1396,9 +1397,29 @@ html.is-phone.is-landscape #root {
   text-align: left;
 }
 
+html.is-watch,
+html.is-watch body,
+html.is-watch #root {
+  transform: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  left: auto !important;
+  top: auto !important;
+  position: relative !important;
+  overflow: hidden;
+}
+
+html.is-watch .app-shell {
+  max-width: none;
+  min-height: 100dvh;
+  padding: 0.2rem;
+}
+
 .watch-remain-row strong {
   font-variant-numeric: tabular-nums;
-  font-size: 1.15em;
+  font-size: 0.95em;
+  white-space: nowrap;
 }
 
 .watch-wait {

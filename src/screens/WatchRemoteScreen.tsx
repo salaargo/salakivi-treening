@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { LiveSnapshot } from '../live/remote'
 import { sendCommand } from '../live/remote'
 import { remainingRestSeconds } from '../components/RestTimer'
@@ -15,26 +15,60 @@ function formatClock(totalSec: number): string {
   return `${mm}:${ss}`
 }
 
-function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
-  const parts = snap.remainingParts?.filter((part) => part.left > 0) ?? []
-  if (parts.length > 0) {
-    return (
-      <div className="watch-remain-list">
-        {parts.map((part) => (
-          <p key={part.name} className="watch-remain-row">
-            <span className="watch-remain-name">{part.name}</span>
-            <strong>{part.left}</strong>
-          </p>
-        ))}
-      </div>
-    )
+function remainingFromSnap(snap: LiveSnapshot): { name: string; left: number }[] {
+  const fromParts = snap.remainingParts?.filter((part) => part.left > 0) ?? []
+  if (fromParts.length) return fromParts
+
+  const hint = snap.remainingHint ?? ''
+  if (hint && !/kordus/i.test(hint)) {
+    const mixed = hint.match(/Veel seeriaid:\s*(.+)/i)
+    if (mixed?.[1]) {
+      const parsed = mixed[1]
+        .split('·')
+        .map((chunk) => {
+          const match = chunk.trim().match(/^(.*)\s+(\d+)$/)
+          return match ? { name: match[1].trim(), left: Number(match[2]) } : null
+        })
+        .filter((row): row is { name: string; left: number } => Boolean(row))
+      if (parsed.length) return parsed
+    }
+    const named = [...hint.matchAll(/(.+?)\s*·\s*(\d+)\s*seer/gi)].map((match) => ({
+      name: match[1].replace(/^Veel seeriaid:\s*/i, '').trim(),
+      left: Number(match[2]),
+    }))
+    if (named.length) return named
+    const one = hint.match(/Veel (\d+) seeria/i)
+    if (one && snap.exerciseName) return [{ name: snap.exerciseName, left: Number(one[1]) }]
   }
-  if (!snap.remainingHint) return null
-  return <p className="watch-remain">{snap.remainingHint}</p>
+
+  if (snap.exerciseName && snap.remainingSets != null && snap.remainingSets > 0) {
+    const rows = [{ name: snap.exerciseName, left: snap.remainingSets }]
+    if (snap.otherName) rows.push({ name: snap.otherName, left: snap.remainingSets })
+    return rows
+  }
+  return []
+}
+
+function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
+  const parts = remainingFromSnap(snap)
+  if (!parts.length) return null
+  return (
+    <div className="watch-remain-list">
+      {parts.map((part) => (
+        <p key={part.name} className="watch-remain-row">
+          <span className="watch-remain-name">{part.name}</span>
+          <strong>
+            {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
+          </strong>
+        </p>
+      ))}
+    </div>
+  )
 }
 
 export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
   const [, setTick] = useState(0)
+  const [held, setHeld] = useState<'active' | null>(null)
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((n) => n + 1), 250)
@@ -43,14 +77,32 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
 
   useEffect(() => {
     sendCommand('sync')
-    const id = window.setInterval(() => sendCommand('sync'), 2500)
+    const id = window.setInterval(() => sendCommand('sync'), 4000)
     return () => window.clearInterval(id)
   }, [])
 
-  const flow = snap?.flow ?? 'idle'
+  useEffect(() => {
+    if (!snap || held !== 'active') return
+    if (snap.flow === 'active' || snap.flow === 'resting' || snap.flow === 'pick' || snap.flow === 'sauna') {
+      setHeld(null)
+    }
+  }, [snap, held])
+
+  useEffect(() => {
+    if (held !== 'active') return
+    const id = window.setTimeout(() => setHeld(null), 4000)
+    return () => window.clearTimeout(id)
+  }, [held])
+
+  const flow = useMemo(() => {
+    if (held === 'active') return 'active'
+    return snap?.flow ?? 'idle'
+  }, [held, snap?.flow])
+
   const restLeft = snap?.restEndsAt ? remainingRestSeconds(snap.restEndsAt) : 0
   const resting = flow === 'resting' && Boolean(snap?.restEndsAt) && restLeft > 0
   const canStart = flow === 'ready' || (flow === 'resting' && restLeft <= 0)
+  const showTehtud = flow === 'active'
   const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'pick'
 
   return (
@@ -64,11 +116,12 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
         ) : (
           <>
             {showRemaining && snap && <WatchRemaining snap={snap} />}
-            {canStart && (
+            {canStart && !showTehtud && (
               <button
                 type="button"
                 className="btn btn-tehtud-lg watch-start"
                 onClick={() => {
+                  setHeld('active')
                   if (flow === 'resting') sendCommand('skip-rest')
                   sendCommand('start')
                 }}
@@ -76,8 +129,15 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
                 Start
               </button>
             )}
-            {flow === 'active' && (
-              <button type="button" className="btn btn-tehtud-lg" onClick={() => sendCommand('tehtud')}>
+            {showTehtud && (
+              <button
+                type="button"
+                className="btn btn-tehtud-lg"
+                onClick={() => {
+                  setHeld(null)
+                  sendCommand('tehtud')
+                }}
+              >
                 Tehtud
               </button>
             )}
