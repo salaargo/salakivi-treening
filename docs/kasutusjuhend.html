@@ -294,6 +294,12 @@
         border-collapse: collapse;
         margin: 8px 0 12px;
         font-size: 10pt;
+        page-break-inside: auto;
+      }
+
+      tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
 
       th,
@@ -366,7 +372,7 @@
         </div>
         <div>
           Versioon<br />
-          <strong>september 2026</strong>
+          <strong>september 2026 · uuendatud</strong>
         </div>
       </div>
     </section>
@@ -524,7 +530,8 @@
         <li>
           Suur kollane <span class="btn yellow">Tehtud</span> ekraani allosas märgib seeria tehtuks.
         </li>
-        <li>Pausi ajal oota taimerit või jäta paus vahele.</li>
+        <li>Pausi ajal oota taimerit või jäta paus vahele. Paus käib kella järgi: kui kustutad
+          ekraani, taimer ei peatu — äratamisel näed järelejäänud aega (või paus on juba läbi).</li>
       </ol>
       <p>
         <span class="btn ghost">Lõpeta harjutus</span> lõpetab varem (nt 3 seeriat 4 asemel). See
@@ -581,7 +588,10 @@
             <span class="pill taastus">Taastus</span>
           </div>
           <p>
-            Faas määrab nädalate arvu, korduste vahemiku ja raskuse kordaja (baasraskusest). Ring
+            Seaded → Faasid: <span class="btn ghost">Lisa</span> uus, ava faas et muuta nime,
+            nädalaid, kordusi ja raskust. <span class="btn ghost">Üles</span> /
+            <span class="btn ghost">Alla</span> muudab järjekorda tsüklis.
+            <span class="btn ghost">Kustuta faas</span> (vähemalt üks peab alles jääma). Ring
             jookseb kalendri järgi.
           </p>
         </div>
@@ -592,19 +602,40 @@
     <section class="break">
       <div class="page-header">
         <span>Salakivi Treening</span>
-        <span>8–10</span>
+        <span>8</span>
       </div>
       <h2>8. Nutikell</h2>
-      <ol class="steps">
-        <li>Seaded → <span class="btn ghost">Ava kellavaade</span> (või kopeeri kellalink).</li>
-        <li>Ava link kella brauseris (Wear OS / Samsung Galaxy Watch).</li>
-        <li>Logi kellas samasse kontosse.</li>
-      </ol>
       <p>
-        Siis saab kell juhtida telefonis käivat treeningut: Start, Tehtud, pausi vahelejätmine.
+        Aadress (ava kella brauseris):
+        <strong>https://salaargo.github.io/salakivi-treening/?kell=1</strong>
+      </p>
+      <ol>
+        <li>
+          Telefonis Seaded → Nutikell → <span class="btn ghost">Kopeeri kellalink</span> (või
+          <span class="btn ghost">Ava kellavaade</span>).
+        </li>
+        <li>Ava see link kella brauseris (Wear OS / Samsung Galaxy Watch).</li>
+        <li>Logi kellas sisse <strong>samasse kontosse</strong> mis telefonis.</li>
+        <li>Alusta treeningut telefonis. Kell näitab suuri nuppe: Start, Tehtud, pausi vahelejätmine.</li>
+      </ol>
+      <div class="callout">
+        <p>
+          <strong>Taimer kellas:</strong> kui paus jookseb, näitab kell suurt kellaaega ja järgmise
+          harjutuse nime. Segamini (kaks harjutust): paus <em>ei tule</em> esimese ja teise vahele —
+          taimer tuleb pärast teist harjutust, enne esimese järgmist seeriat. Siis näed taimeri ka
+          kellas.
+        </p>
+      </div>
+      <p>
         Apple Watchi brauser on piiratud — seal ava sama link või treeni kellavaates otse.
       </p>
+    </section>
 
+    <section class="break">
+      <div class="page-header">
+        <span>Salakivi Treening</span>
+        <span>9–10</span>
+      </div>
       <h2>9. Admin (Argo)</h2>
       <p>Konto <strong>salaargo@gmail.com</strong> näeb Seadete ülaosas Admin plokki:</p>
       <ul>
@@ -647,13 +678,21 @@
             <td>Sama konto mõlemas, kellalink <em>?kell=1</em>, treening juba telefonis käimas.</td>
           </tr>
           <tr>
+            <td>Kellas pole taimeri</td>
+            <td>Segamini: paus tuleb pärast 2. harjutust. Ühe harjutusega tuleb paus iga seeria järel.</td>
+          </tr>
+          <tr>
+            <td>Ekraan kustub, paus „peatub“</td>
+            <td>Paus käib kella järgi. Lülita ekraan sisse — näed järelejäänud aega või paus on läbi.</td>
+          </tr>
+          <tr>
             <td>Ekraan on põiki</td>
             <td>Pööra telefon püsti. Kellavaates seda lukku ei ole.</td>
           </tr>
         </tbody>
       </table>
       <p class="footer-note">
-        Salakivi Treening · kasutusjuhend · september 2026 ·
+        Salakivi Treening · kasutusjuhend · september 2026 (uuendatud) ·
         https://salaargo.github.io/salakivi-treening/
       </p>
     </section>
