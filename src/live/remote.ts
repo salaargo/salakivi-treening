@@ -14,11 +14,11 @@ export interface LiveSnapshot {
   setNumber?: number
   totalRounds?: number
   remainingHint?: string
+  remainingParts?: { name: string; left: number }[]
   nextHint?: string
   restSeconds?: number
   restEndsAt?: number
   remainingSets?: number
-  remainingReps?: number
   weightKg?: number
   machineName?: string
 }

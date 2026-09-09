@@ -132,26 +132,24 @@ function nextIncompleteSet(log: DayLog, exerciseId: string): number {
   return idx === -1 ? sets.length : idx
 }
 
-function remainingRepsCount(log: DayLog, items: { id: string }[]): number {
-  return items.reduce((sum, ex) => {
-    if (isExerciseDone(log, ex.id)) return sum
-    const sets = findExerciseLog(log, ex.id)?.sets ?? []
-    return sum + sets.filter((s) => !s.completed).reduce((acc, s) => acc + (s.reps || 0), 0)
-  }, 0)
-}
-
-function remainingSetsHint(
+function remainingSetParts(
   log: DayLog,
   items: { id: string; name: string }[],
-): string {
-  const parts = items
+): { name: string; left: number }[] {
+  return items
     .map((ex) => {
       if (isExerciseDone(log, ex.id)) return null
       const left = findExerciseLog(log, ex.id)?.sets.filter((s) => !s.completed).length ?? 0
       return left > 0 ? { name: ex.name, left } : null
     })
     .filter((part): part is { name: string; left: number } => part !== null)
+}
 
+function remainingSetsHint(
+  log: DayLog,
+  items: { id: string; name: string }[],
+): string {
+  const parts = remainingSetParts(log, items)
   if (parts.length === 0) return 'Seeriad tehtud'
   if (parts.length === 1) {
     const n = parts[0].left
@@ -376,6 +374,7 @@ export function WorkoutScreen({
         setNumber: currentEx ? setNumber : undefined,
         totalRounds: currentEx ? totalRounds : undefined,
         remainingHint: log ? remainingSetsHint(log, selectedExercises) : undefined,
+        remainingParts: log ? remainingSetParts(log, selectedExercises) : undefined,
         nextHint: restNext || undefined,
         restSeconds,
         restEndsAt: restEndsAt ?? undefined,
@@ -383,7 +382,6 @@ export function WorkoutScreen({
           currentEx && log
             ? findExerciseLog(log, currentEx.id)?.sets.filter((s) => !s.completed).length
             : undefined,
-        remainingReps: log ? remainingRepsCount(log, selectedExercises.length ? selectedExercises : liveExercises) : undefined,
         weightKg: currentSet?.weightKg,
         machineName: currentMachine?.name,
       })

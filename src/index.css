@@ -1371,6 +1371,36 @@ html.is-phone.is-landscape #root {
   font-size: clamp(0.95rem, 5vw, 1.2rem);
 }
 
+.watch-remain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  width: 100%;
+}
+
+.watch-remain-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin: 0;
+  font-weight: 800;
+  font-size: clamp(0.9rem, 4.6vw, 1.15rem);
+}
+
+.watch-remain-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+  text-align: left;
+}
+
+.watch-remain-row strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.15em;
+}
+
 .watch-wait {
   margin: 0;
   color: var(--muted);

@@ -15,6 +15,24 @@ function formatClock(totalSec: number): string {
   return `${mm}:${ss}`
 }
 
+function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
+  const parts = snap.remainingParts?.filter((part) => part.left > 0) ?? []
+  if (parts.length > 0) {
+    return (
+      <div className="watch-remain-list">
+        {parts.map((part) => (
+          <p key={part.name} className="watch-remain-row">
+            <span className="watch-remain-name">{part.name}</span>
+            <strong>{part.left}</strong>
+          </p>
+        ))}
+      </div>
+    )
+  }
+  if (!snap.remainingHint) return null
+  return <p className="watch-remain">{snap.remainingHint}</p>
+}
+
 export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
   const [, setTick] = useState(0)
 
@@ -33,18 +51,7 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
   const restLeft = snap?.restEndsAt ? remainingRestSeconds(snap.restEndsAt) : 0
   const resting = flow === 'resting' && Boolean(snap?.restEndsAt) && restLeft > 0
   const canStart = flow === 'ready' || (flow === 'resting' && restLeft <= 0)
-  const remainingReps = snap?.remainingReps
-  const remainingSets = snap?.remainingSets
-  const remaining =
-    remainingReps != null && remainingReps > 0
-      ? remainingReps === 1
-        ? 'Veel 1 kordus'
-        : `Veel ${remainingReps} kordust`
-      : remainingSets != null && remainingSets > 0
-        ? remainingSets === 1
-          ? 'Veel 1 seeria'
-          : `Veel ${remainingSets} seeriat`
-        : snap?.remainingHint || ''
+  const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'pick'
 
   return (
     <div className={`watch-remote watch-face-${face}`}>
@@ -52,13 +59,11 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
         {resting ? (
           <>
             <p className="watch-clock">{formatClock(restLeft)}</p>
-            {remaining && <p className="watch-remain">{remaining}</p>}
+            {snap && <WatchRemaining snap={snap} />}
           </>
         ) : (
           <>
-            {remaining && flow !== 'idle' && flow !== 'pick' && (
-              <p className="watch-remain">{remaining}</p>
-            )}
+            {showRemaining && snap && <WatchRemaining snap={snap} />}
             {canStart && (
               <button
                 type="button"
