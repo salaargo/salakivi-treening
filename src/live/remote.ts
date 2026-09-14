@@ -1,6 +1,11 @@
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { isWatchMode } from '../orientation'
+import {
+  applySessionCommand,
+  isPhoneLikelyAsleep,
+  sessionToSnapshot,
+} from './sessionEngine'
 
 export type RemoteCommandType = 'start' | 'tehtud' | 'skip-rest' | 'finish-exercise' | 'stop' | 'sync'
 
@@ -23,6 +28,7 @@ export interface LiveSnapshot {
   seq?: number
   weightKg?: number
   machineName?: string
+  session?: import('./sessionEngine').LiveSession
 }
 
 export interface LiveCommand {
@@ -161,6 +167,27 @@ async function persistCloud(snap: LiveSnapshot): Promise<void> {
       /* võrk */
     }
   }
+
+  if (isWatchMode() && snap.session) {
+    try {
+      const { data } = await supabase
+        .from('user_app_state')
+        .select('state')
+        .eq('user_id', currentUserId)
+        .maybeSingle()
+      const existing =
+        data?.state && typeof data.state === 'object' ? (data.state as Record<string, unknown>) : {}
+      await supabase.from('user_app_state').upsert(
+        {
+          user_id: currentUserId,
+          state: { ...existing, __live: snap },
+        },
+        { onConflict: 'user_id' },
+      )
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export async function pullRemoteSnapshot(userId?: string | null): Promise<LiveSnapshot | null> {
@@ -282,6 +309,16 @@ export function sendCommand(type: LiveCommand['type']): void {
     event: 'live',
     payload: { kind: 'cmd', cmd },
   })
+}
+
+/** Kell: kui telefon magab, rakenda käsk kohapeal ja kirjuta pilve. */
+export function dispatchWatchCommand(type: LiveCommand['type']): void {
+  sendCommand(type)
+  if (type === 'sync' || type === 'stop' || type === 'finish-exercise') return
+  const snap = getLatestLiveSnapshot()
+  if (!isPhoneLikelyAsleep(snap) || !snap?.session) return
+  const next = applySessionCommand(snap.session, type)
+  publishSnapshot(sessionToSnapshot(next))
 }
 
 export function subscribeSnapshot(onSnap: (snap: LiveSnapshot) => void): () => void {

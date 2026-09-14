@@ -829,8 +829,11 @@ export function SettingsScreen({
         <h3>Nutikell</h3>
         <p className="muted small">
           Avage kellas brauseris vastav kellavaade ja logige samasse kontosse. Telefonis valige
-          harjutus ja pink — kellas on ainult Start, Tehtud, pausitaimer ja järelejäänud kordused.
-          Galaxy Watch on ümmargune sihverplaat, Apple Watch kandiline.
+          harjutus ja pink — kellas on Start, Tehtud, pausitaimer ja järelejäänud seeriad. Galaxy
+          Watch: ümar sihverplaat. Apple Watchil ei ole tavalist brauserit nagu telefonis — linki
+          saab avada iPhone’i sõnumist/meilist (puuduta linki kellas) või uuemal watchOS-il Safari
+          kaudu, kui see on kellas olemas. Täisväärtuslik treeningjuhtimine töötab kindlamalt Galaxy
+          Watchi brauseris.
         </p>
         <div className="home-actions">
           <a className="btn btn-secondary full" href={galaxyHref}>

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LiveSnapshot } from '../live/remote'
-import { sendCommand } from '../live/remote'
+import { dispatchWatchCommand, sendCommand } from '../live/remote'
 import { remainingRestSeconds } from '../components/RestTimer'
 import type { WatchFace } from '../orientation'
 
@@ -21,17 +21,6 @@ function remainingFromSnap(snap: LiveSnapshot): { name: string; left: number }[]
 
   const hint = snap.remainingHint ?? ''
   if (hint && !/kordus/i.test(hint)) {
-    const mixed = hint.match(/Veel seeriaid:\s*(.+)/i)
-    if (mixed?.[1]) {
-      const parsed = mixed[1]
-        .split('·')
-        .map((chunk) => {
-          const match = chunk.trim().match(/^(.*)\s+(\d+)$/)
-          return match ? { name: match[1].trim(), left: Number(match[2]) } : null
-        })
-        .filter((row): row is { name: string; left: number } => Boolean(row))
-      if (parsed.length) return parsed
-    }
     const named = [...hint.matchAll(/(.+?)\s*·\s*(\d+)\s*seer/gi)].map((match) => ({
       name: match[1].replace(/^Veel seeriaid:\s*/i, '').trim(),
       left: Number(match[2]),
@@ -66,9 +55,18 @@ function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
   )
 }
 
+function vibrateWatch() {
+  try {
+    navigator.vibrate?.([280, 120, 280, 120, 450])
+  } catch {
+    /* kell ei toeta */
+  }
+}
+
 export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
   const [, setTick] = useState(0)
   const [held, setHeld] = useState<'active' | null>(null)
+  const buzzedRest = useRef<number | null>(null)
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((n) => n + 1), 250)
@@ -94,12 +92,22 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
     return () => window.clearTimeout(id)
   }, [held])
 
+  const restLeft = snap?.restEndsAt ? remainingRestSeconds(snap.restEndsAt) : 0
+
+  useEffect(() => {
+    const ends = snap?.restEndsAt
+    if (snap?.flow !== 'resting' || !ends) return
+    if (restLeft > 0) return
+    if (buzzedRest.current === ends) return
+    buzzedRest.current = ends
+    vibrateWatch()
+  }, [restLeft, snap?.flow, snap?.restEndsAt])
+
   const flow = useMemo(() => {
     if (held === 'active') return 'active'
     return snap?.flow ?? 'idle'
   }, [held, snap?.flow])
 
-  const restLeft = snap?.restEndsAt ? remainingRestSeconds(snap.restEndsAt) : 0
   const resting = flow === 'resting' && Boolean(snap?.restEndsAt) && restLeft > 0
   const canStart = flow === 'ready' || (flow === 'resting' && restLeft <= 0)
   const showTehtud = flow === 'active'
@@ -122,8 +130,8 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
                 className="btn btn-tehtud-lg watch-start"
                 onClick={() => {
                   setHeld('active')
-                  if (flow === 'resting') sendCommand('skip-rest')
-                  sendCommand('start')
+                  if (flow === 'resting') dispatchWatchCommand('skip-rest')
+                  dispatchWatchCommand('start')
                 }}
               >
                 Start
@@ -135,7 +143,7 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
                 className="btn btn-tehtud-lg"
                 onClick={() => {
                   setHeld(null)
-                  sendCommand('tehtud')
+                  dispatchWatchCommand('tehtud')
                 }}
               >
                 Tehtud

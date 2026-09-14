@@ -12,8 +12,10 @@ import {
 import { createMachine, exerciseRounds, getMachine, getPrimaryMachine } from '../exercises'
 import { suggestedWeight, phaseToneKey } from '../phases'
 import { RestTimer } from '../components/RestTimer'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { afterSetAction } from '../workoutFlow'
-import { publishSnapshot, subscribeCommands, type LiveCommand } from '../live/remote'
+import { publishSnapshot, pullRemoteSnapshot, subscribeCommands, subscribeSnapshot, type LiveCommand } from '../live/remote'
+import type { LiveSession } from '../live/sessionEngine'
 import { isWatchMode, lockPortrait, useScreenWakeLock } from '../orientation'
 import { clearRestSession, loadRestSession, saveRestSession } from '../restSession'
 import { useWorkoutKeepAlive } from '../keepAlive'
@@ -196,6 +198,7 @@ export function WorkoutScreen({
   const [restEndsAt, setRestEndsAt] = useState<number | null>(restoredRest?.endsAt ?? null)
   const [showSetMenu, setShowSetMenu] = useState(false)
   const [addPink, setAddPink] = useState<AddPinkForm | null>(null)
+  const [confirm, setConfirm] = useState<null | 'abort-set' | 'abort-exercise'>(null)
   const keepAlive = Boolean(plan && (flow === 'ready' || flow === 'active' || flow === 'resting'))
   useScreenWakeLock(keepAlive)
   useWorkoutKeepAlive(keepAlive)
@@ -222,6 +225,7 @@ export function WorkoutScreen({
   )
   const setStartedAt = useRef<number | null>(null)
   const lastTehtudAt = useRef<number | null>(null)
+  const lastPublishAt = useRef(0)
   const workMsAcc = useRef(log?.workMs ?? 0)
   const restMsAcc = useRef(log?.restMs ?? 0)
   const commandRef = useRef({
@@ -240,6 +244,26 @@ export function WorkoutScreen({
     [onUpdateLog],
   )
 
+  const hydrateSession = useCallback(
+    (s: LiveSession) => {
+      commitLog(s.log)
+      setFlow(s.flow === 'idle' ? 'pick' : s.flow)
+      setSelected(s.selected)
+      setActiveSlot(s.activeSlot)
+      setRestSeconds(s.restSeconds)
+      setRestHint(s.restHint)
+      setRestNext(s.restNext)
+      setRestEndsAt(s.restEndsAt ?? null)
+      pendingAfterRest.current = s.pendingAfterRest
+      sessionStartedAt.current = s.sessionStartedAt
+      workMsAcc.current = s.workMs
+      restMsAcc.current = s.restMs
+      setStartedAt.current = s.setStartedAt
+      lastTehtudAt.current = s.lastTehtudAt
+    },
+    [commitLog],
+  )
+
   useEffect(() => {
     if (!onRegisterLiveLog) return
     onRegisterLiveLog(() => {
@@ -249,6 +273,9 @@ export function WorkoutScreen({
       let restMs = restMsAcc.current
       if (setStartedAt.current !== null) {
         workMs += now - setStartedAt.current
+      }
+      if (lastTehtudAt.current !== null) {
+        restMs += now - lastTehtudAt.current
       }
       const started =
         sessionStartedAt.current !== null
@@ -318,6 +345,31 @@ export function WorkoutScreen({
     }
   }, [dateKey, endRest])
 
+  useEffect(() => {
+    if (isWatchMode()) return
+    return subscribeSnapshot((snap) => {
+      if (!snap.session || snap.session.v !== 2) return
+      if (snap.at <= lastPublishAt.current + 120) return
+      hydrateSession(snap.session)
+    })
+  }, [hydrateSession])
+
+  useEffect(() => {
+    if (isWatchMode()) return
+    const onWake = () => {
+      if (document.visibilityState === 'hidden') return
+      void pullRemoteSnapshot()
+    }
+    document.addEventListener('visibilitychange', onWake)
+    window.addEventListener('focus', onWake)
+    window.addEventListener('pageshow', onWake)
+    return () => {
+      document.removeEventListener('visibilitychange', onWake)
+      window.removeEventListener('focus', onWake)
+      window.removeEventListener('pageshow', onWake)
+    }
+  }, [])
+
   function extendRest(seconds: number) {
     setRestEndsAt((t) => {
       const next = (t ?? Date.now()) + seconds * 1000
@@ -361,6 +413,33 @@ export function WorkoutScreen({
     const publish = () => {
       const other =
         selected.length === 2 ? liveExercises[selected[activeSlot === 0 ? 1 : 0]] : undefined
+      const session: LiveSession | undefined = log
+        ? {
+            v: 2,
+            dateKey,
+            flow,
+            selected,
+            activeSlot,
+            log,
+            restEndsAt: restEndsAt ?? undefined,
+            restSeconds,
+            restHint,
+            restNext,
+            pendingAfterRest: pendingAfterRest.current,
+            sessionStartedAt: sessionStartedAt.current,
+            workMs: workMsAcc.current,
+            restMs: restMsAcc.current,
+            setStartedAt: setStartedAt.current,
+            lastTehtudAt: lastTehtudAt.current,
+            planName: plan?.name ?? '',
+            exercises: liveExercises.map((e) => ({
+              id: e.id,
+              name: e.name,
+              restSeconds: e.restSeconds,
+            })),
+          }
+        : undefined
+      lastPublishAt.current = Date.now()
       publishSnapshot({
         v: 1,
         at: Date.now(),
@@ -382,6 +461,7 @@ export function WorkoutScreen({
             : undefined,
         weightKg: currentSet?.weightKg,
         machineName: currentMachine?.name,
+        session,
       })
     }
     publishNowRef.current = publish
@@ -412,6 +492,7 @@ export function WorkoutScreen({
     restNext,
     currentSet?.weightKg,
     currentMachine?.name,
+    restHint,
     liveExercises,
     selectedExercises,
   ])
@@ -428,7 +509,9 @@ export function WorkoutScreen({
     return subscribeCommands((cmd: LiveCommand) => {
       const handlers = commandRef.current
       if (cmd.type === 'sync') publishNowRef.current()
-      if (cmd.type === 'start' && handlers.flow === 'ready') handlers.onStart()
+      if (cmd.type === 'start' && (handlers.flow === 'ready' || handlers.flow === 'resting')) {
+        handlers.onStart()
+      }
       if (cmd.type === 'tehtud' && handlers.flow === 'active') handlers.onTehtud()
       if (cmd.type === 'skip-rest' && handlers.flow === 'resting') handlers.onSkipRest()
       if (cmd.type === 'finish-exercise' && (handlers.flow === 'ready' || handlers.flow === 'active')) {
@@ -481,6 +564,9 @@ export function WorkoutScreen({
       lastTehtudAt.current = null
     }
     setStartedAt.current = now
+    if (!dayLog.startedAt) {
+      commitLog({ ...dayLog, startedAt: new Date(sessionStartedAt.current).toISOString() })
+    }
   }
 
   function recordTehtud() {
@@ -498,7 +584,10 @@ export function WorkoutScreen({
       workMsAcc.current += now - setStartedAt.current
       setStartedAt.current = null
     }
-    lastTehtudAt.current = null
+    if (lastTehtudAt.current !== null) {
+      restMsAcc.current += now - lastTehtudAt.current
+      lastTehtudAt.current = null
+    }
     const started =
       sessionStartedAt.current !== null
         ? new Date(sessionStartedAt.current).toISOString()
@@ -513,7 +602,16 @@ export function WorkoutScreen({
     }
   }
 
-  function goToPicker() {
+  function abortCurrentSet() {
+    setStartedAt.current = null
+    setConfirm(null)
+    setFlow('ready')
+  }
+
+  function abortExerciseToPicker() {
+    setStartedAt.current = null
+    setConfirm(null)
+    setShowSetMenu(false)
     setSelected([])
     setActiveSlot(0)
     if (allExercisesDone(dayLog, liveExercises)) {
@@ -522,6 +620,29 @@ export function WorkoutScreen({
       return
     }
     setFlow('pick')
+  }
+
+  function goToPicker() {
+    if (flow === 'active') {
+      setConfirm('abort-set')
+      return
+    }
+    if (flow === 'ready') {
+      setConfirm('abort-exercise')
+      return
+    }
+    setSelected([])
+    setActiveSlot(0)
+    if (allExercisesDone(dayLog, liveExercises)) {
+      commitLog(withFinishStats(dayLog))
+      setFlow('sauna')
+      return
+    }
+    setFlow('pick')
+  }
+
+  function handleFinishEarly() {
+    setConfirm('abort-exercise')
   }
 
   function markSetComplete(exerciseId: string, si: number, next: DayLog): DayLog {
@@ -573,12 +694,22 @@ export function WorkoutScreen({
     const otherSlot = activeSlot === 0 ? 1 : 0
     const otherExercise = selected.length === 2 ? liveExercises[selected[otherSlot]] : undefined
     const otherStillOpen = otherExercise ? !isExerciseDone(next, otherExercise.id) : false
+    const thisCompleted = findExerciseLog(next, currentEx.id)?.sets.filter((s) => s.completed).length ?? 0
+    const otherCompleted = otherExercise
+      ? findExerciseLog(next, otherExercise.id)?.sets.filter((s) => s.completed).length ?? 0
+      : 0
+    const firstEx = liveExercises[selected[0]]
+    const firstStillOpen = firstEx ? !isExerciseDone(next, firstEx.id) : false
     const action = afterSetAction({
       selectedLength: selected.length,
       activeSlot,
+      otherSlot,
+      thisCompleted,
+      otherCompleted,
       thisDone,
       otherStillOpen,
       allDone: allExercisesDone(next, liveExercises),
+      firstStillOpen,
     })
 
     if (action.kind === 'sauna') {
@@ -605,41 +736,6 @@ export function WorkoutScreen({
     startRest(pause, next, action.nextSlot)
   }
 
-  function handleFinishEarly() {
-    if (!currentEx) return
-    if (flow === 'active') recordTehtud()
-    const next: DayLog = {
-      ...dayLog,
-      exercises: dayLog.exercises.map((ex) =>
-        ex.exerciseId !== currentEx.id ? ex : { ...ex, finishedEarly: true },
-      ),
-    }
-
-    if (selected.length === 2) {
-      const other = selected.find((i) => i !== currentExIndex)
-      const otherExercise = other !== undefined ? liveExercises[other] : undefined
-      if (otherExercise && !isExerciseDone(next, otherExercise.id)) {
-        commitLog(next)
-        setSelected([other!])
-        setActiveSlot(0)
-        setShowSetMenu(false)
-        setFlow('ready')
-        return
-      }
-    }
-
-    setShowSetMenu(false)
-    if (allExercisesDone(next, liveExercises)) {
-      commitLog(withFinishStats(next))
-      setFlow('sauna')
-      return
-    }
-    commitLog(next)
-    setSelected([])
-    setActiveSlot(0)
-    setFlow('pick')
-  }
-
   function jumpToSet(n: number) {
     if (!currentEx) return
     const logged = findExerciseLog(dayLog, currentEx.id)
@@ -663,10 +759,6 @@ export function WorkoutScreen({
     commitLog(next)
     setShowSetMenu(false)
     setFlow('ready')
-  }
-
-  function handleAllDone() {
-    handleFinishEarly()
   }
 
   function patchSet(exerciseId: string, si: number, patch: Partial<SetLog>) {
@@ -735,11 +827,15 @@ export function WorkoutScreen({
   function onStartPointerUp() {
     clearLongPress()
     if (longPressFired.current) return
-    if (flow === 'ready') {
-      recordStart()
-      tehtudArmed.current = false
-      setFlow('active')
+    if (flow !== 'ready' && flow !== 'resting') return
+    if (flow === 'resting') {
+      clearRestSession()
+      setRestEndsAt(null)
+      pendingAfterRest.current = 'ready'
     }
+    recordStart()
+    tehtudArmed.current = false
+    setFlow('active')
   }
 
   function onTehtudPointerDown() {
@@ -768,7 +864,7 @@ export function WorkoutScreen({
   if (flow === 'sauna') {
     const totalMs = workoutTotalMs(dayLog)
     const workMs = dayLog.workMs ?? 0
-    const restMs = dayLog.restMs ?? 0
+    const restMs = Math.max(0, totalMs - workMs)
     const missed = liveExercises.filter((ex) => !isExerciseDone(dayLog, ex.id))
     return (
       <div className="screen sauna-screen">
@@ -1108,12 +1204,36 @@ export function WorkoutScreen({
             Tehtud
           </button>
         )}
+        {flow === 'active' && (
+          <button type="button" className="btn btn-ghost full" onClick={() => setConfirm('abort-set')}>
+            Tagasi — muuda raskust / pinki
+          </button>
+        )}
         {(flow === 'ready' || flow === 'active') && (
-          <button type="button" className="btn btn-ghost full" onClick={handleFinishEarly}>
-            Lõpeta harjutus
+          <button type="button" className="btn btn-ghost full" onClick={() => setConfirm('abort-exercise')}>
+            Katkesta harjutus
           </button>
         )}
       </div>
+
+      {confirm === 'abort-set' && (
+        <ConfirmDialog
+          title="Katkesta sooritus?"
+          text="Seeria jääb tegemata. Saad raskust või pinki muuta ja uuesti Startida."
+          confirmLabel="Katkesta"
+          onCancel={() => setConfirm(null)}
+          onConfirm={abortCurrentSet}
+        />
+      )}
+      {confirm === 'abort-exercise' && (
+        <ConfirmDialog
+          title="Katkesta harjutus?"
+          text="Tehtud seeriad jäävad alles. Saad sama harjutuse valikust hiljem pooleli jätkata. Trenni lõpetamist see ei keela — lõpus märgitakse tegemata harjutused."
+          confirmLabel="Katkesta"
+          onCancel={() => setConfirm(null)}
+          onConfirm={abortExerciseToPicker}
+        />
+      )}
 
       {showSetMenu && currentLog && (
         <div className="timer-overlay" role="dialog" aria-label="Muuda seeriat">
@@ -1132,8 +1252,8 @@ export function WorkoutScreen({
                 </button>
               ))}
             </div>
-            <button type="button" className="btn btn-primary full" onClick={handleAllDone}>
-              Lõpeta harjutus
+            <button type="button" className="btn btn-primary full" onClick={() => setConfirm('abort-exercise')}>
+              Katkesta harjutus
             </button>
             <button type="button" className="btn btn-ghost full" onClick={() => setShowSetMenu(false)}>
               Tagasi
