@@ -25,6 +25,8 @@ export interface LiveSnapshot {
   restSeconds?: number
   restEndsAt?: number
   remainingSets?: number
+  /** Uus treening / ekraan. Erinev seade ei tohi vana seq-iga uut trenni blokeerida. */
+  epoch?: number
   seq?: number
   weightKg?: number
   machineName?: string
@@ -55,14 +57,34 @@ let tableMissing = false
 let lastSnap: LiveSnapshot | null = null
 let publishSeq = 0
 
-function snapRank(snap: LiveSnapshot): number {
-  return snap.seq ?? snap.at
+/**
+ * Uus treening (kõrgem epoch) võidab alati, isegi kui seq algab 1-st.
+ * Sama treeningu sees võidab uuem seinakell, mitte seadme oma loendur.
+ */
+export function snapshotShouldReplace(
+  incoming: LiveSnapshot,
+  current: LiveSnapshot | null,
+): boolean {
+  if (!incoming || incoming.v !== 1) return false
+  if (!current) return true
+
+  const inEpoch = incoming.epoch ?? 0
+  const curEpoch = current.epoch ?? 0
+  if (inEpoch !== curEpoch) return inEpoch > curEpoch
+
+  const dt = incoming.at - current.at
+  if (dt > 80) return true
+  if (dt < -80) return false
+
+  const inSeq = incoming.seq ?? 0
+  const curSeq = current.seq ?? 0
+  if (inSeq !== curSeq) return inSeq > curSeq
+  return dt >= 0
 }
 
 /** Vanem hetkeseis ei tohi kella Start/Tehtud peale tagasi keerata. */
 function applySnap(snap: LiveSnapshot): boolean {
-  if (!snap || snap.v !== 1) return false
-  if (lastSnap && snapRank(snap) < snapRank(lastSnap)) return false
+  if (!snapshotShouldReplace(snap, lastSnap)) return false
   lastSnap = snap
   if (!isWatchMode()) {
     try {
@@ -280,7 +302,8 @@ function onStorage(ev: StorageEvent): void {
 }
 
 export function publishSnapshot(snap: LiveSnapshot): void {
-  const stamped: LiveSnapshot = { ...snap, seq: ++publishSeq, at: Date.now() }
+  const epoch = snap.epoch ?? lastSnap?.epoch ?? Date.now()
+  const stamped: LiveSnapshot = { ...snap, epoch, seq: ++publishSeq, at: Date.now() }
   applySnap(stamped)
   getBc()?.postMessage({ kind: 'snap', snap: stamped } satisfies Envelope)
   void supabaseChannel?.send({
@@ -317,7 +340,9 @@ export function dispatchWatchCommand(type: LiveCommand['type']): void {
   if (type === 'sync' || type === 'stop' || type === 'finish-exercise') return
   const snap = getLatestLiveSnapshot()
   if (!isPhoneLikelyAsleep(snap) || !snap?.session) return
+  if (snap.flow === 'sauna' || snap.flow === 'idle' || snap.flow === 'pick') return
   const next = applySessionCommand(snap.session, type)
+  if (next === snap.session) return
   publishSnapshot(sessionToSnapshot(next))
 }
 

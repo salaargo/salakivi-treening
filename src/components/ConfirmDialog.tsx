@@ -11,7 +11,7 @@ export function ConfirmDialog({
   title,
   text,
   confirmLabel = 'OK',
-  cancelLabel = 'Cancel',
+  cancelLabel = 'Tagasi',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {

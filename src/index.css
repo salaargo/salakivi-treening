@@ -748,8 +748,39 @@ select:focus {
   cursor: pointer;
 }
 
+.guided-workout .topbar {
+  padding-right: 10.4rem;
+}
+
 .is-phone-shell .topbar {
   padding-right: 5.4rem;
+}
+
+.is-phone-shell .guided-workout .topbar {
+  padding-right: 10.4rem;
+}
+
+.btn-workout-abort {
+  position: fixed;
+  right: 6.4rem;
+  top: calc(0.58rem + var(--safe-top));
+  z-index: 50;
+  border: 1px solid color-mix(in srgb, #fff 18%, transparent);
+  border-radius: 999px;
+  padding: 0.4rem 0.7rem;
+  min-height: 2.15rem;
+  background: color-mix(in srgb, var(--surface) 88%, #000);
+  color: color-mix(in srgb, #fff 78%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+
+.btn-workout-abort:active {
+  transform: scale(0.97);
 }
 
 .btn-stopp:active {
@@ -1424,6 +1455,14 @@ html.is-watch .app-shell {
   margin: 0;
   color: var(--muted);
   font-weight: 600;
+}
+
+.watch-wait-sub {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.55em;
+  font-weight: 500;
+  opacity: 0.8;
 }
 
 html.is-watch .watch-clock {

@@ -226,6 +226,7 @@ export function WorkoutScreen({
   const setStartedAt = useRef<number | null>(null)
   const lastTehtudAt = useRef<number | null>(null)
   const lastPublishAt = useRef(0)
+  const liveEpochRef = useRef(Date.now())
   const workMsAcc = useRef(log?.workMs ?? 0)
   const restMsAcc = useRef(log?.restMs ?? 0)
   const commandRef = useRef({
@@ -349,26 +350,14 @@ export function WorkoutScreen({
     if (isWatchMode()) return
     return subscribeSnapshot((snap) => {
       if (!snap.session || snap.session.v !== 2) return
+      if (snap.dateKey && snap.dateKey !== dateKey) return
+      if ((snap.epoch ?? 0) < liveEpochRef.current) return
+      if (snap.flow === 'idle') return
+      if (snap.flow === 'sauna' && (snap.epoch ?? 0) !== liveEpochRef.current) return
       if (snap.at <= lastPublishAt.current + 120) return
       hydrateSession(snap.session)
     })
-  }, [hydrateSession])
-
-  useEffect(() => {
-    if (isWatchMode()) return
-    const onWake = () => {
-      if (document.visibilityState === 'hidden') return
-      void pullRemoteSnapshot()
-    }
-    document.addEventListener('visibilitychange', onWake)
-    window.addEventListener('focus', onWake)
-    window.addEventListener('pageshow', onWake)
-    return () => {
-      document.removeEventListener('visibilitychange', onWake)
-      window.removeEventListener('focus', onWake)
-      window.removeEventListener('pageshow', onWake)
-    }
-  }, [])
+  }, [dateKey, hydrateSession])
 
   function extendRest(seconds: number) {
     setRestEndsAt((t) => {
@@ -443,6 +432,7 @@ export function WorkoutScreen({
       publishSnapshot({
         v: 1,
         at: Date.now(),
+        epoch: liveEpochRef.current,
         dateKey,
         flow,
         planName: plan?.name,
@@ -467,7 +457,22 @@ export function WorkoutScreen({
     publishNowRef.current = publish
     publish()
     const id = window.setInterval(publish, 400)
-    const onWake = () => publish()
+    const onWake = () => {
+      if (document.visibilityState === 'hidden') return
+      void pullRemoteSnapshot().then((snap) => {
+        if (
+          snap?.session?.v === 2 &&
+          snap.dateKey === dateKey &&
+          (snap.epoch ?? 0) >= liveEpochRef.current &&
+          snap.flow !== 'idle' &&
+          (snap.flow !== 'sauna' || (snap.epoch ?? 0) === liveEpochRef.current) &&
+          snap.at > lastPublishAt.current + 120
+        ) {
+          hydrateSession(snap.session)
+        }
+        publish()
+      })
+    }
     document.addEventListener('visibilitychange', onWake)
     window.addEventListener('focus', onWake)
     window.addEventListener('pageshow', onWake)
@@ -495,12 +500,13 @@ export function WorkoutScreen({
     restHint,
     liveExercises,
     selectedExercises,
+    hydrateSession,
   ])
 
   useEffect(() => {
     return () => {
       if (!isWatchMode()) {
-        publishSnapshot({ v: 1, at: Date.now(), dateKey, flow: 'idle' })
+        publishSnapshot({ v: 1, at: Date.now(), epoch: Date.now(), dateKey, flow: 'idle' })
       }
     }
   }, [dateKey])
@@ -625,10 +631,6 @@ export function WorkoutScreen({
   function goToPicker() {
     if (flow === 'active') {
       setConfirm('abort-set')
-      return
-    }
-    if (flow === 'ready') {
-      setConfirm('abort-exercise')
       return
     }
     setSelected([])
@@ -1039,6 +1041,15 @@ export function WorkoutScreen({
 
   return (
     <div className="screen workout-screen guided-workout">
+      {(flow === 'ready' || flow === 'active') && (
+        <button
+          type="button"
+          className="btn-workout-abort"
+          onClick={() => setConfirm('abort-exercise')}
+        >
+          Katkesta
+        </button>
+      )}
       <header className="topbar">
         <button type="button" className="btn btn-ghost btn-icon" onClick={goToPicker}>
           ←
@@ -1204,16 +1215,6 @@ export function WorkoutScreen({
             Tehtud
           </button>
         )}
-        {flow === 'active' && (
-          <button type="button" className="btn btn-ghost full" onClick={() => setConfirm('abort-set')}>
-            Tagasi — muuda raskust / pinki
-          </button>
-        )}
-        {(flow === 'ready' || flow === 'active') && (
-          <button type="button" className="btn btn-ghost full" onClick={() => setConfirm('abort-exercise')}>
-            Katkesta harjutus
-          </button>
-        )}
       </div>
 
       {confirm === 'abort-set' && (
@@ -1221,6 +1222,7 @@ export function WorkoutScreen({
           title="Katkesta sooritus?"
           text="Seeria jääb tegemata. Saad raskust või pinki muuta ja uuesti Startida."
           confirmLabel="Katkesta"
+          cancelLabel="Tagasi"
           onCancel={() => setConfirm(null)}
           onConfirm={abortCurrentSet}
         />
@@ -1230,6 +1232,7 @@ export function WorkoutScreen({
           title="Katkesta harjutus?"
           text="Tehtud seeriad jäävad alles. Saad sama harjutuse valikust hiljem pooleli jätkata. Trenni lõpetamist see ei keela — lõpus märgitakse tegemata harjutused."
           confirmLabel="Katkesta"
+          cancelLabel="Tagasi"
           onCancel={() => setConfirm(null)}
           onConfirm={abortExerciseToPicker}
         />
