@@ -26,10 +26,22 @@ export interface LiveSession {
   lastTehtudAt: number | null
   planName: string
   exercises: SessionExercise[]
+  /** Iga Start/Tehtud/pausi-vahe. Vanem telefoni seis ei tohi uuemate käskude peale kirjutada. */
+  rev?: number
 }
 
 function findExerciseLog(log: DayLog, exerciseId: string): ExerciseLog | undefined {
   return log.exercises.find((entry) => entry.exerciseId === exerciseId)
+}
+
+export function completedSetCount(log?: DayLog | null): number {
+  if (!log) return 0
+  return log.exercises.reduce((n, ex) => n + ex.sets.filter((s) => s.completed).length, 0)
+}
+
+function withRev(prev: LiveSession, next: LiveSession): LiveSession {
+  if (next === prev) return prev
+  return { ...next, rev: (prev.rev ?? 0) + 1 }
 }
 
 function nextIncompleteSet(log: DayLog, exerciseId: string): number {
@@ -257,14 +269,15 @@ export function applySessionCommand(
 ): LiveSession {
   if (type === 'sync' || type === 'stop' || type === 'finish-exercise') return session
   if (type === 'start') {
-    if (session.flow === 'resting') session = endRest(session)
-    if (session.flow !== 'ready') return session
-    return recordStart(session, now)
+    let next = session
+    if (next.flow === 'resting') next = endRest(next)
+    if (next.flow !== 'ready') return session
+    return withRev(session, recordStart(next, now))
   }
-  if (type === 'tehtud') return applyTehtud(session, now)
+  if (type === 'tehtud') return withRev(session, applyTehtud(session, now))
   if (type === 'skip-rest') {
     if (session.flow !== 'resting') return session
-    return endRest(session)
+    return withRev(session, endRest(session))
   }
   return session
 }

@@ -1,11 +1,7 @@
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { isWatchMode } from '../orientation'
-import {
-  applySessionCommand,
-  isPhoneLikelyAsleep,
-  sessionToSnapshot,
-} from './sessionEngine'
+import { applySessionCommand, completedSetCount, sessionToSnapshot } from './sessionEngine'
 
 export type RemoteCommandType = 'start' | 'tehtud' | 'skip-rest' | 'finish-exercise' | 'stop' | 'sync'
 
@@ -37,6 +33,7 @@ export interface LiveCommand {
   id: string
   type: RemoteCommandType
   at: number
+  rev?: number
 }
 
 const BC_NAME = 'salakivi-live'
@@ -57,9 +54,18 @@ let tableMissing = false
 let lastSnap: LiveSnapshot | null = null
 let publishSeq = 0
 
+function snapshotRev(snap: LiveSnapshot | null | undefined): number {
+  return snap?.session?.rev ?? 0
+}
+
+function snapshotSets(snap: LiveSnapshot | null | undefined): number {
+  return completedSetCount(snap?.session?.log)
+}
+
 /**
  * Uus treening (kõrgem epoch) võidab alati, isegi kui seq algab 1-st.
- * Sama treeningu sees võidab uuem seinakell, mitte seadme oma loendur.
+ * Sama treeningu sees võidab kella/telefoni käskude järjekord (rev),
+ * mitte seadme oma loendur ega värskem timestamp vanal seisul.
  */
 export function snapshotShouldReplace(
   incoming: LiveSnapshot,
@@ -72,6 +78,14 @@ export function snapshotShouldReplace(
   const curEpoch = current.epoch ?? 0
   if (inEpoch !== curEpoch) return inEpoch > curEpoch
 
+  const inRev = snapshotRev(incoming)
+  const curRev = snapshotRev(current)
+  if (inRev !== curRev) return inRev > curRev
+
+  const inSets = snapshotSets(incoming)
+  const curSets = snapshotSets(current)
+  if (inSets !== curSets) return inSets > curSets
+
   const dt = incoming.at - current.at
   if (dt > 80) return true
   if (dt < -80) return false
@@ -80,6 +94,27 @@ export function snapshotShouldReplace(
   const curSeq = current.seq ?? 0
   if (inSeq !== curSeq) return inSeq > curSeq
   return dt >= 0
+}
+
+/** Kas pilve/kella seanss on telefoni praegusest treeningust ees. */
+export function snapshotIsAhead(
+  incoming: LiveSnapshot | null | undefined,
+  localRev: number,
+  localCompleted: number,
+  localFlow?: LiveSnapshot['flow'],
+): boolean {
+  if (!incoming?.session || incoming.session.v !== 2) return false
+  if (incoming.flow === 'idle') return false
+  const inRev = incoming.session.rev ?? 0
+  if (inRev > localRev) return true
+  const inSets = completedSetCount(incoming.session.log)
+  if (inSets > localCompleted) return true
+  if (inRev === localRev && inSets === localCompleted && localFlow) {
+    if (incoming.flow === 'active' && localFlow === 'ready') return true
+    if (incoming.flow === 'resting' && (localFlow === 'active' || localFlow === 'ready')) return true
+    if (incoming.flow === 'sauna' && localFlow !== 'sauna') return true
+  }
+  return false
 }
 
 /** Vanem hetkeseis ei tohi kella Start/Tehtud peale tagasi keerata. */
@@ -184,31 +219,30 @@ async function persistCloud(snap: LiveSnapshot): Promise<void> {
         { onConflict: 'user_id' },
       )
       if (error && isMissingRelation(error)) tableMissing = true
-      else if (!error) return
     } catch {
       /* võrk */
     }
   }
 
-  if (isWatchMode() && snap.session) {
-    try {
-      const { data } = await supabase
-        .from('user_app_state')
-        .select('state')
-        .eq('user_id', currentUserId)
-        .maybeSingle()
-      const existing =
-        data?.state && typeof data.state === 'object' ? (data.state as Record<string, unknown>) : {}
-      await supabase.from('user_app_state').upsert(
-        {
-          user_id: currentUserId,
-          state: { ...existing, __live: snap },
-        },
-        { onConflict: 'user_id' },
-      )
-    } catch {
-      /* ignore */
-    }
+  try {
+    const { data } = await supabase
+      .from('user_app_state')
+      .select('state')
+      .eq('user_id', currentUserId)
+      .maybeSingle()
+    const existing =
+      data?.state && typeof data.state === 'object' ? (data.state as Record<string, unknown>) : {}
+    const existingLive = liveFromState(existing)
+    if (existingLive && !snapshotShouldReplace(snap, existingLive)) return
+    await supabase.from('user_app_state').upsert(
+      {
+        user_id: currentUserId,
+        state: { ...existing, __live: snap },
+      },
+      { onConflict: 'user_id' },
+    )
+  } catch {
+    /* ignore */
   }
 }
 
@@ -216,18 +250,15 @@ export async function pullRemoteSnapshot(userId?: string | null): Promise<LiveSn
   const uid = userId ?? currentUserId
   if (!isCloudEnabled() || !uid) return readStoredSnapshot()
   const supabase = getSupabase()
+  const candidates: LiveSnapshot[] = []
 
   if (!tableMissing) {
     try {
       const { data, error } = await supabase.from(TABLE).select('snap').eq('user_id', uid).maybeSingle()
       if (error) {
         if (isMissingRelation(error)) tableMissing = true
-      } else {
-        const snap = data?.snap as LiveSnapshot | undefined
-        if (snap?.v === 1) {
-          applySnap(snap)
-          return lastSnap
-        }
+      } else if (data?.snap && (data.snap as LiveSnapshot).v === 1) {
+        candidates.push(data.snap as LiveSnapshot)
       }
     } catch {
       /* ignore */
@@ -237,14 +268,17 @@ export async function pullRemoteSnapshot(userId?: string | null): Promise<LiveSn
   try {
     const { data } = await supabase.from('user_app_state').select('state').eq('user_id', uid).maybeSingle()
     const snap = liveFromState(data?.state)
-    if (snap) {
-      applySnap(snap)
-      return lastSnap
-    }
+    if (snap) candidates.push(snap)
   } catch {
     /* ignore */
   }
-  return readStoredSnapshot()
+
+  let best: LiveSnapshot | null = null
+  for (const snap of candidates) {
+    if (snapshotShouldReplace(snap, best)) best = snap
+  }
+  if (best) applySnap(best)
+  return lastSnap ?? readStoredSnapshot()
 }
 
 export async function connectLiveRemote(userId: string | null): Promise<void> {
@@ -304,6 +338,7 @@ function onStorage(ev: StorageEvent): void {
 export function publishSnapshot(snap: LiveSnapshot): void {
   const epoch = snap.epoch ?? lastSnap?.epoch ?? Date.now()
   const stamped: LiveSnapshot = { ...snap, epoch, seq: ++publishSeq, at: Date.now() }
+  if (lastSnap && !snapshotShouldReplace(stamped, lastSnap)) return
   applySnap(stamped)
   getBc()?.postMessage({ kind: 'snap', snap: stamped } satisfies Envelope)
   void supabaseChannel?.send({
@@ -314,11 +349,12 @@ export function publishSnapshot(snap: LiveSnapshot): void {
   void persistCloud(stamped)
 }
 
-export function sendCommand(type: LiveCommand['type']): void {
+export function sendCommand(type: LiveCommand['type'], rev?: number): void {
   const cmd: LiveCommand = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     type,
     at: Date.now(),
+    rev,
   }
   try {
     localStorage.setItem(CMD_KEY, JSON.stringify(cmd))
@@ -334,16 +370,22 @@ export function sendCommand(type: LiveCommand['type']): void {
   })
 }
 
-/** Kell: kui telefon magab, rakenda käsk kohapeal ja kirjuta pilve. */
+/** Kell: rakenda käsk kohapeal ja kirjuta pilve — telefon lukus olles JS ei tiksu. */
 export function dispatchWatchCommand(type: LiveCommand['type']): void {
-  sendCommand(type)
-  if (type === 'sync' || type === 'stop' || type === 'finish-exercise') return
+  if (type === 'sync' || type === 'stop' || type === 'finish-exercise') {
+    sendCommand(type)
+    return
+  }
   const snap = getLatestLiveSnapshot()
-  if (!isPhoneLikelyAsleep(snap) || !snap?.session) return
-  if (snap.flow === 'sauna' || snap.flow === 'idle' || snap.flow === 'pick') return
-  const next = applySessionCommand(snap.session, type)
-  if (next === snap.session) return
-  publishSnapshot(sessionToSnapshot(next))
+  if (snap?.session && snap.flow !== 'sauna' && snap.flow !== 'idle' && snap.flow !== 'pick') {
+    const next = applySessionCommand(snap.session, type)
+    if (next !== snap.session) {
+      sendCommand(type, next.rev)
+      publishSnapshot(sessionToSnapshot(next))
+      return
+    }
+  }
+  sendCommand(type)
 }
 
 export function subscribeSnapshot(onSnap: (snap: LiveSnapshot) => void): () => void {

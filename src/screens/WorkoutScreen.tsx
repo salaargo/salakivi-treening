@@ -14,8 +14,9 @@ import { suggestedWeight, phaseToneKey } from '../phases'
 import { RestTimer } from '../components/RestTimer'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { afterSetAction } from '../workoutFlow'
-import { publishSnapshot, pullRemoteSnapshot, subscribeCommands, subscribeSnapshot, type LiveCommand } from '../live/remote'
+import { publishSnapshot, pullRemoteSnapshot, subscribeCommands, subscribeSnapshot, snapshotIsAhead, getLatestLiveSnapshot, type LiveCommand } from '../live/remote'
 import type { LiveSession } from '../live/sessionEngine'
+import { completedSetCount } from '../live/sessionEngine'
 import { isWatchMode, lockPortrait, useScreenWakeLock } from '../orientation'
 import { clearRestSession, loadRestSession, saveRestSession } from '../restSession'
 import { useWorkoutKeepAlive } from '../keepAlive'
@@ -227,6 +228,11 @@ export function WorkoutScreen({
   const lastTehtudAt = useRef<number | null>(null)
   const lastPublishAt = useRef(0)
   const liveEpochRef = useRef(Date.now())
+  const sessionRevRef = useRef(0)
+  const flowRef = useRef(flow)
+  const logRef = useRef(log)
+  flowRef.current = flow
+  logRef.current = log
   const workMsAcc = useRef(log?.workMs ?? 0)
   const restMsAcc = useRef(log?.restMs ?? 0)
   const commandRef = useRef({
@@ -247,6 +253,7 @@ export function WorkoutScreen({
 
   const hydrateSession = useCallback(
     (s: LiveSession) => {
+      sessionRevRef.current = s.rev ?? sessionRevRef.current
       commitLog(s.log)
       setFlow(s.flow === 'idle' ? 'pick' : s.flow)
       setSelected(s.selected)
@@ -264,6 +271,10 @@ export function WorkoutScreen({
     },
     [commitLog],
   )
+
+  function bumpSessionRev() {
+    sessionRevRef.current += 1
+  }
 
   useEffect(() => {
     if (!onRegisterLiveLog) return
@@ -303,6 +314,7 @@ export function WorkoutScreen({
   }, [state, dateKey, liveExercises, log, commitLog])
 
   const endRest = useCallback(() => {
+    sessionRevRef.current += 1
     clearRestSession()
     setRestEndsAt(null)
     if (pendingAfterRest.current === 'pick') {
@@ -322,6 +334,17 @@ export function WorkoutScreen({
     const onWake = () => {
       if (document.visibilityState === 'hidden') return
       void lockPortrait()
+      const remote = getLatestLiveSnapshot()
+      if (
+        snapshotIsAhead(
+          remote,
+          sessionRevRef.current,
+          completedSetCount(logRef.current),
+          flowRef.current,
+        )
+      ) {
+        return
+      }
       const saved = loadRestSession(dateKey)
       if (!saved) return
       setRestEndsAt(saved.endsAt)
@@ -349,13 +372,18 @@ export function WorkoutScreen({
   useEffect(() => {
     if (isWatchMode()) return
     return subscribeSnapshot((snap) => {
-      if (!snap.session || snap.session.v !== 2) return
-      if (snap.dateKey && snap.dateKey !== dateKey) return
-      if ((snap.epoch ?? 0) < liveEpochRef.current) return
-      if (snap.flow === 'idle') return
-      if (snap.flow === 'sauna' && (snap.epoch ?? 0) !== liveEpochRef.current) return
-      if (snap.at <= lastPublishAt.current + 120) return
-      hydrateSession(snap.session)
+      if (
+        snapshotIsAhead(
+          snap,
+          sessionRevRef.current,
+          completedSetCount(logRef.current),
+          flowRef.current,
+        )
+      ) {
+        if (snap.dateKey && snap.dateKey !== dateKey) return
+        if ((snap.epoch ?? 0) < liveEpochRef.current) return
+        hydrateSession(snap.session!)
+      }
     })
   }, [dateKey, hydrateSession])
 
@@ -400,6 +428,7 @@ export function WorkoutScreen({
   useEffect(() => {
     if (isWatchMode()) return
     const publish = () => {
+      if (document.visibilityState === 'hidden') return
       const other =
         selected.length === 2 ? liveExercises[selected[activeSlot === 0 ? 1 : 0]] : undefined
       const session: LiveSession | undefined = log
@@ -421,6 +450,7 @@ export function WorkoutScreen({
             setStartedAt: setStartedAt.current,
             lastTehtudAt: lastTehtudAt.current,
             planName: plan?.name ?? '',
+            rev: sessionRevRef.current,
             exercises: liveExercises.map((e) => ({
               id: e.id,
               name: e.name,
@@ -457,21 +487,29 @@ export function WorkoutScreen({
     publishNowRef.current = publish
     publish()
     const id = window.setInterval(publish, 400)
-    const onWake = () => {
+    const catchUpFromWatch = () => {
       if (document.visibilityState === 'hidden') return
       void pullRemoteSnapshot().then((snap) => {
         if (
-          snap?.session?.v === 2 &&
-          snap.dateKey === dateKey &&
+          snap?.dateKey === dateKey &&
           (snap.epoch ?? 0) >= liveEpochRef.current &&
-          snap.flow !== 'idle' &&
-          (snap.flow !== 'sauna' || (snap.epoch ?? 0) === liveEpochRef.current) &&
-          snap.at > lastPublishAt.current + 120
+          snapshotIsAhead(
+            snap,
+            sessionRevRef.current,
+            completedSetCount(logRef.current),
+            flowRef.current,
+          )
         ) {
-          hydrateSession(snap.session)
+          hydrateSession(snap.session!)
+          return
         }
         publish()
       })
+    }
+    catchUpFromWatch()
+    const onWake = () => {
+      if (document.visibilityState === 'hidden') return
+      catchUpFromWatch()
     }
     document.addEventListener('visibilitychange', onWake)
     window.addEventListener('focus', onWake)
@@ -514,7 +552,28 @@ export function WorkoutScreen({
   useEffect(() => {
     return subscribeCommands((cmd: LiveCommand) => {
       const handlers = commandRef.current
-      if (cmd.type === 'sync') publishNowRef.current()
+      if (cmd.rev != null && sessionRevRef.current >= cmd.rev) return
+      if (cmd.type === 'sync') {
+        const remote = getLatestLiveSnapshot()
+        if (
+          snapshotIsAhead(
+            remote,
+            sessionRevRef.current,
+            completedSetCount(logRef.current),
+            flowRef.current,
+          )
+        ) {
+          if (remote?.session) hydrateSession(remote.session)
+          return
+        }
+        publishNowRef.current()
+        return
+      }
+      const remote = getLatestLiveSnapshot()
+      if (cmd.rev != null && remote?.session && (remote.session.rev ?? 0) >= cmd.rev) {
+        hydrateSession(remote.session)
+        return
+      }
       if (cmd.type === 'start' && (handlers.flow === 'ready' || handlers.flow === 'resting')) {
         handlers.onStart()
       }
@@ -524,7 +583,7 @@ export function WorkoutScreen({
         handlers.onFinishEarly()
       }
     })
-  }, [])
+  }, [hydrateSession])
 
   if (!plan || !phase || !progress || !log || !liveExercises.length) {
     return (
@@ -558,11 +617,13 @@ export function WorkoutScreen({
 
   function beginSelected() {
     if (selected.length === 0) return
+    bumpSessionRev()
     setActiveSlot(0)
     setFlow('ready')
   }
 
   function recordStart() {
+    bumpSessionRev()
     const now = Date.now()
     if (sessionStartedAt.current === null) sessionStartedAt.current = now
     if (lastTehtudAt.current !== null) {
@@ -609,12 +670,14 @@ export function WorkoutScreen({
   }
 
   function abortCurrentSet() {
+    bumpSessionRev()
     setStartedAt.current = null
     setConfirm(null)
     setFlow('ready')
   }
 
   function abortExerciseToPicker() {
+    bumpSessionRev()
     setStartedAt.current = null
     setConfirm(null)
     setShowSetMenu(false)
@@ -688,6 +751,7 @@ export function WorkoutScreen({
 
   function handleTehtud() {
     if (!currentEx || !currentSet) return
+    bumpSessionRev()
 
     recordTehtud()
     const next = markSetComplete(currentEx.id, setIndex, dayLog)

@@ -3,7 +3,7 @@ import { createStarterState } from '../seed/starterState'
 import { parseAppState, saveState } from '../storage'
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import { isAdminEmail } from '../admin'
-import { getLatestLiveSnapshot } from '../live/remote'
+import { getLatestLiveSnapshot, snapshotShouldReplace, type LiveSnapshot } from '../live/remote'
 
 export { isCloudEnabled }
 
@@ -233,10 +233,24 @@ async function ensureTemplateFromAdmin(state: AppState): Promise<void> {
 export async function saveCloudState(userId: string, state: AppState): Promise<void> {
   saveState(state)
   const supabase = getSupabase()
-  const live = getLatestLiveSnapshot()
+  const { data: existingRow } = await supabase
+    .from('user_app_state')
+    .select('state')
+    .eq('user_id', userId)
+    .maybeSingle()
+  const existing =
+    existingRow?.state && typeof existingRow.state === 'object'
+      ? (existingRow.state as Record<string, unknown>)
+      : {}
+  const existingLive = (existing.__live as LiveSnapshot | undefined)?.v === 1 ? (existing.__live as LiveSnapshot) : null
+  const localLive = getLatestLiveSnapshot()
+  const keepLive =
+    localLive && snapshotShouldReplace(localLive, existingLive)
+      ? localLive
+      : (existingLive ?? localLive ?? undefined)
   const row: Pick<CloudRow, 'user_id' | 'state'> = {
     user_id: userId,
-    state: live ? { ...state, __live: live } : state,
+    state: keepLive ? { ...state, __live: keepLive } : state,
   }
   const { error } = await supabase.from('user_app_state').upsert(row, { onConflict: 'user_id' })
   if (error) throw error
