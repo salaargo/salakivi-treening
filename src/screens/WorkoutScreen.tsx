@@ -241,6 +241,7 @@ export function WorkoutScreen({
     onTehtud: () => {},
     onSkipRest: () => {},
     onFinishEarly: () => {},
+    onSelectSlot: (_slot: number) => {},
   })
 
   const commitLog = useCallback(
@@ -253,8 +254,12 @@ export function WorkoutScreen({
 
   const hydrateSession = useCallback(
     (s: LiveSession) => {
-      sessionRevRef.current = s.rev ?? sessionRevRef.current
-      commitLog(s.log)
+      const local = logRef.current
+      const incomingSets = completedSetCount(s.log)
+      const localSets = completedSetCount(local)
+      const logToUse = local && incomingSets < localSets ? local : s.log
+      sessionRevRef.current = Math.max(s.rev ?? 0, sessionRevRef.current)
+      commitLog(logToUse)
       setFlow(s.flow === 'idle' ? 'pick' : s.flow)
       setSelected(s.selected)
       setActiveSlot(s.activeSlot)
@@ -309,7 +314,16 @@ export function WorkoutScreen({
     const rebuilt = buildInitialLog(state, dateKey)
     if (!rebuilt || !log) return
     if (!logMatchesExercises(log, liveExercises)) {
-      commitLog(rebuilt)
+      commitLog({
+        ...rebuilt,
+        startedAt: log.startedAt ?? rebuilt.startedAt,
+        workMs: log.workMs ?? rebuilt.workMs,
+        restMs: log.restMs ?? rebuilt.restMs,
+        exercises: rebuilt.exercises.map((ex) => {
+          const prev = log.exercises.find((entry) => entry.exerciseId === ex.exerciseId)
+          return prev ?? ex
+        }),
+      })
     }
   }, [state, dateKey, liveExercises, log, commitLog])
 
@@ -482,6 +496,15 @@ export function WorkoutScreen({
         weightKg: currentSet?.weightKg,
         machineName: currentMachine?.name,
         session,
+        activeSlot,
+        pairChoices: selected.map((index, slot) => {
+          const ex = liveExercises[index]
+          const left =
+            ex && log
+              ? findExerciseLog(log, ex.id)?.sets.filter((s) => !s.completed).length ?? 0
+              : 0
+          return { slot, name: ex?.name ?? `Harjutus ${slot + 1}`, left }
+        }),
       })
     }
     publishNowRef.current = publish
@@ -543,7 +566,8 @@ export function WorkoutScreen({
 
   useEffect(() => {
     return () => {
-      if (!isWatchMode()) {
+      if (isWatchMode()) return
+      if (flowRef.current === 'sauna') {
         publishSnapshot({ v: 1, at: Date.now(), epoch: Date.now(), dateKey, flow: 'idle' })
       }
     }
@@ -579,6 +603,9 @@ export function WorkoutScreen({
       }
       if (cmd.type === 'tehtud' && handlers.flow === 'active') handlers.onTehtud()
       if (cmd.type === 'skip-rest' && handlers.flow === 'resting') handlers.onSkipRest()
+      if (cmd.type === 'select-slot' && (cmd.slot === 0 || cmd.slot === 1)) {
+        handlers.onSelectSlot(cmd.slot)
+      }
       if (cmd.type === 'finish-exercise' && (handlers.flow === 'ready' || handlers.flow === 'active')) {
         handlers.onFinishEarly()
       }
@@ -925,6 +952,12 @@ export function WorkoutScreen({
     onTehtud: handleTehtud,
     onSkipRest: endRest,
     onFinishEarly: handleFinishEarly,
+    onSelectSlot: (slot: number) => {
+      if (flow === 'active') return
+      if (flow === 'resting') endRest()
+      else bumpSessionRev()
+      setActiveSlot(slot)
+    },
   }
 
   if (flow === 'sauna') {
@@ -987,22 +1020,6 @@ export function WorkoutScreen({
             Valmis
           </button>
         </div>
-      </div>
-    )
-  }
-
-  if (flow === 'resting') {
-    return (
-      <div className="screen workout-screen">
-        <RestTimer
-          endsAt={restEndsAt ?? Date.now() + restSeconds * 1000}
-          durationSeconds={Math.max(1, restSeconds)}
-          remainingHint={restHint}
-          nextHint={restNext}
-          onComplete={endRest}
-          onSkip={endRest}
-          onExtend={extendRest}
-        />
       </div>
     )
   }
@@ -1105,7 +1122,7 @@ export function WorkoutScreen({
 
   return (
     <div className="screen workout-screen guided-workout">
-      {(flow === 'ready' || flow === 'active') && (
+      {(flow === 'ready' || flow === 'active' || flow === 'resting') && (
         <button
           type="button"
           className="btn-workout-abort"
@@ -1136,7 +1153,12 @@ export function WorkoutScreen({
                   key={ei}
                   type="button"
                   className={`mix-tab ${slot === activeSlot ? 'is-on' : ''}`}
-                  onClick={() => setActiveSlot(slot)}
+                  onClick={() => {
+                    if (flow === 'active') return
+                    if (flow === 'resting') endRest()
+                    else if (slot !== activeSlot) bumpSessionRev()
+                    setActiveSlot(slot)
+                  }}
                   disabled={flow === 'active'}
                 >
                   {liveExercises[ei]?.name}
@@ -1205,7 +1227,7 @@ export function WorkoutScreen({
                       id={pinkId}
                       value={set.machineId}
                       onChange={(e) => switchSetMachine(currentEx.id, si, e.target.value)}
-                      disabled={set.completed || (flow === 'active' && !isCurrent)}
+                      disabled={set.completed}
                     >
                       {currentEx.machines.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -1228,7 +1250,7 @@ export function WorkoutScreen({
                           weightKg: Number(e.target.value) || 0,
                         })
                       }
-                      disabled={set.completed || (flow === 'active' && !isCurrent)}
+                      disabled={set.completed}
                     />
                   </div>
                   <div className="field set-round-field">
@@ -1250,6 +1272,19 @@ export function WorkoutScreen({
             })}
           </div>
         </div>
+      )}
+
+      {flow === 'resting' && (
+        <RestTimer
+          layout="banner"
+          endsAt={restEndsAt ?? Date.now() + restSeconds * 1000}
+          durationSeconds={Math.max(1, restSeconds)}
+          remainingHint={restHint}
+          nextHint={restNext}
+          onComplete={endRest}
+          onSkip={endRest}
+          onExtend={extendRest}
+        />
       )}
 
       <div className="tehtud-dock">

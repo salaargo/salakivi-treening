@@ -264,10 +264,20 @@ function finishSession(session: LiveSession, now: number): LiveSession {
 
 export function applySessionCommand(
   session: LiveSession,
-  type: 'start' | 'tehtud' | 'skip-rest' | 'finish-exercise' | 'stop' | 'sync',
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot' | 'finish-exercise' | 'stop' | 'sync',
   now = Date.now(),
+  extra?: { slot?: number },
 ): LiveSession {
   if (type === 'sync' || type === 'stop' || type === 'finish-exercise') return session
+  if (type === 'select-slot') {
+    const slot = extra?.slot
+    if (slot !== 0 && slot !== 1) return session
+    if (session.selected[slot] === undefined) return session
+    if (session.flow !== 'ready' && session.flow !== 'resting') return session
+    let next = session
+    if (next.flow === 'resting') next = endRest(next)
+    return withRev(session, { ...next, activeSlot: slot, flow: 'ready' })
+  }
   if (type === 'start') {
     let next = session
     if (next.flow === 'resting') next = endRest(next)
@@ -299,6 +309,8 @@ export function sessionToSnapshot(session: LiveSession): {
   restEndsAt?: number
   remainingSets?: number
   weightKg?: number
+  activeSlot?: number
+  pairChoices?: { slot: number; name: string; left: number }[]
   session: LiveSession
 } {
   const currentExIndex = session.selected[session.activeSlot] ?? session.selected[0]
@@ -331,6 +343,14 @@ export function sessionToSnapshot(session: LiveSession): {
       ? findExerciseLog(session.log, currentEx.id)?.sets.filter((s) => !s.completed).length
       : undefined,
     weightKg: currentSet?.weightKg,
+    activeSlot: session.activeSlot,
+    pairChoices: session.selected.map((index, slot) => {
+      const ex = session.exercises[index]
+      const left = ex
+        ? findExerciseLog(session.log, ex.id)?.sets.filter((s) => !s.completed).length ?? 0
+        : 0
+      return { slot, name: ex?.name ?? `Harjutus ${slot + 1}`, left }
+    }),
     session,
   }
 }

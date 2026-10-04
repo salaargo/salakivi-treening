@@ -10,6 +10,9 @@ interface RestTimerProps {
   onExtend?: (seconds: number) => void
   remainingHint?: string
   nextHint?: string
+  /** banner = telefonis pausi ajal saab raskusi muuta; overlay katab kogu ekraani. */
+  layout?: 'overlay' | 'banner'
+  vibrate?: boolean
 }
 
 function vibrate() {
@@ -32,6 +35,8 @@ export function RestTimer({
   onExtend,
   remainingHint,
   nextHint,
+  layout = 'overlay',
+  vibrate: allowVibrate = false,
 }: RestTimerProps) {
   const finishedRef = useRef(false)
   const onCompleteRef = useRef(onComplete)
@@ -47,7 +52,7 @@ export function RestTimer({
       setLeft(next)
       if (next <= 0 && !finishedRef.current) {
         finishedRef.current = true
-        vibrate()
+        if (allowVibrate) vibrate()
         onCompleteRef.current()
       }
     }
@@ -69,12 +74,44 @@ export function RestTimer({
       document.removeEventListener('resume', onWake)
       window.removeEventListener('online', onWake)
     }
-  }, [endsAt])
+  }, [endsAt, allowVibrate])
 
   const total = Math.max(1, durationSeconds)
   const progress = Math.min(1, left / total)
   const mm = String(Math.floor(Math.max(left, 0) / 60)).padStart(2, '0')
   const ss = String(Math.max(left, 0) % 60).padStart(2, '0')
+
+  if (layout === 'banner') {
+    return (
+      <div className="rest-banner" role="status" aria-label="Pausiloendur">
+        <div className="rest-banner-main">
+          <span className="rest-banner-label">Paus</span>
+          <strong className="rest-banner-clock">
+            {mm}:{ss}
+          </strong>
+        </div>
+        {nextHint && <p className="rest-banner-next">{nextHint}</p>}
+        <div className="rest-banner-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => onExtend?.(15)}>
+            +15s
+          </button>
+          {onSkip && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                if (finishedRef.current) return
+                finishedRef.current = true
+                onSkip()
+              }}
+            >
+              Jäta vahele
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="timer-overlay rest-fullscreen" role="dialog" aria-label="Pausiloendur">
@@ -109,7 +146,7 @@ export function RestTimer({
               onClick={() => {
                 if (finishedRef.current) return
                 finishedRef.current = true
-                vibrate()
+                if (allowVibrate) vibrate()
                 onSkip()
               }}
             >

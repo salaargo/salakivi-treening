@@ -15,7 +15,25 @@ function formatClock(totalSec: number): string {
   return `${mm}:${ss}`
 }
 
+function pairFromSnap(snap: LiveSnapshot): { slot: number; name: string; left: number }[] {
+  if (snap.pairChoices && snap.pairChoices.length >= 2) return snap.pairChoices
+  const fromParts = snap.remainingParts?.filter((part) => part.left >= 0) ?? []
+  if (fromParts.length >= 2) {
+    return fromParts.slice(0, 2).map((part, slot) => ({ slot, name: part.name, left: part.left }))
+  }
+  if (snap.exerciseName && snap.otherName) {
+    return [
+      { slot: 0, name: snap.exerciseName, left: snap.remainingSets ?? 0 },
+      { slot: 1, name: snap.otherName, left: snap.remainingSets ?? 0 },
+    ]
+  }
+  return []
+}
+
 function remainingFromSnap(snap: LiveSnapshot): { name: string; left: number }[] {
+  const pair = pairFromSnap(snap)
+  if (pair.length >= 2) return pair.map((p) => ({ name: p.name, left: p.left }))
+
   const fromParts = snap.remainingParts?.filter((part) => part.left > 0) ?? []
   if (fromParts.length) return fromParts
 
@@ -31,14 +49,49 @@ function remainingFromSnap(snap: LiveSnapshot): { name: string; left: number }[]
   }
 
   if (snap.exerciseName && snap.remainingSets != null && snap.remainingSets > 0) {
-    const rows = [{ name: snap.exerciseName, left: snap.remainingSets }]
-    if (snap.otherName) rows.push({ name: snap.otherName, left: snap.remainingSets })
-    return rows
+    return [{ name: snap.exerciseName, left: snap.remainingSets }]
   }
   return []
 }
 
+function WatchPairPicker({
+  snap,
+  canSelect,
+}: {
+  snap: LiveSnapshot
+  canSelect: boolean
+}) {
+  const pair = pairFromSnap(snap)
+  if (pair.length < 2) return null
+  const current = snap.activeSlot ?? 0
+  return (
+    <div className="watch-pair-list">
+      {pair.map((part) => {
+        const isNext = part.slot === current
+        return (
+          <button
+            key={`${part.slot}-${part.name}`}
+            type="button"
+            className={`watch-pair-btn ${isNext ? 'is-next' : ''}`}
+            disabled={!canSelect}
+            onClick={() => {
+              if (!canSelect || isNext) return
+              dispatchWatchCommand('select-slot', { slot: part.slot })
+            }}
+          >
+            <span className="watch-remain-name">{part.name}</span>
+            <strong>
+              {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
+            </strong>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
+  if (pairFromSnap(snap).length >= 2) return null
   const parts = remainingFromSnap(snap)
   if (!parts.length) return null
   return (
@@ -112,6 +165,7 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
   const canStart = flow === 'ready' || (flow === 'resting' && restLeft <= 0)
   const showTehtud = flow === 'active'
   const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'pick'
+  const canPickPair = Boolean(snap) && (flow === 'ready' || flow === 'resting')
 
   return (
     <div className={`watch-remote watch-face-${face}`}>
@@ -119,10 +173,12 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
         {resting ? (
           <>
             <p className="watch-clock">{formatClock(restLeft)}</p>
+            {snap && <WatchPairPicker snap={snap} canSelect={canPickPair} />}
             {snap && <WatchRemaining snap={snap} />}
           </>
         ) : (
           <>
+            {showRemaining && snap && <WatchPairPicker snap={snap} canSelect={canPickPair} />}
             {showRemaining && snap && <WatchRemaining snap={snap} />}
             {canStart && !showTehtud && (
               <button

@@ -3,7 +3,14 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 import { isWatchMode } from '../orientation'
 import { applySessionCommand, completedSetCount, sessionToSnapshot } from './sessionEngine'
 
-export type RemoteCommandType = 'start' | 'tehtud' | 'skip-rest' | 'finish-exercise' | 'stop' | 'sync'
+export type RemoteCommandType =
+  | 'start'
+  | 'tehtud'
+  | 'skip-rest'
+  | 'select-slot'
+  | 'finish-exercise'
+  | 'stop'
+  | 'sync'
 
 export interface LiveSnapshot {
   v: 1
@@ -26,6 +33,8 @@ export interface LiveSnapshot {
   seq?: number
   weightKg?: number
   machineName?: string
+  activeSlot?: number
+  pairChoices?: { slot: number; name: string; left: number }[]
   session?: import('./sessionEngine').LiveSession
 }
 
@@ -34,6 +43,7 @@ export interface LiveCommand {
   type: RemoteCommandType
   at: number
   rev?: number
+  slot?: number
 }
 
 const BC_NAME = 'salakivi-live'
@@ -74,17 +84,22 @@ export function snapshotShouldReplace(
   if (!incoming || incoming.v !== 1) return false
   if (!current) return true
 
+  const inSets = snapshotSets(incoming)
+  const curSets = snapshotSets(current)
+  if (incoming.flow === 'idle' && curSets > inSets) return false
+
   const inEpoch = incoming.epoch ?? 0
   const curEpoch = current.epoch ?? 0
-  if (inEpoch !== curEpoch) return inEpoch > curEpoch
+  if (inEpoch !== curEpoch) {
+    if (incoming.dateKey === current.dateKey && inSets < curSets) return false
+    return inEpoch > curEpoch
+  }
+
+  if (inSets !== curSets) return inSets > curSets
 
   const inRev = snapshotRev(incoming)
   const curRev = snapshotRev(current)
   if (inRev !== curRev) return inRev > curRev
-
-  const inSets = snapshotSets(incoming)
-  const curSets = snapshotSets(current)
-  if (inSets !== curSets) return inSets > curSets
 
   const dt = incoming.at - current.at
   if (dt > 80) return true
@@ -105,9 +120,10 @@ export function snapshotIsAhead(
 ): boolean {
   if (!incoming?.session || incoming.session.v !== 2) return false
   if (incoming.flow === 'idle') return false
+  const inSets = completedSetCount(incoming.session.log)
+  if (inSets < localCompleted) return false
   const inRev = incoming.session.rev ?? 0
   if (inRev > localRev) return true
-  const inSets = completedSetCount(incoming.session.log)
   if (inSets > localCompleted) return true
   if (inRev === localRev && inSets === localCompleted && localFlow) {
     if (incoming.flow === 'active' && localFlow === 'ready') return true
@@ -349,12 +365,16 @@ export function publishSnapshot(snap: LiveSnapshot): void {
   void persistCloud(stamped)
 }
 
-export function sendCommand(type: LiveCommand['type'], rev?: number): void {
+export function sendCommand(
+  type: LiveCommand['type'],
+  meta?: { rev?: number; slot?: number },
+): void {
   const cmd: LiveCommand = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     type,
     at: Date.now(),
-    rev,
+    rev: meta?.rev,
+    slot: meta?.slot,
   }
   try {
     localStorage.setItem(CMD_KEY, JSON.stringify(cmd))
@@ -371,21 +391,24 @@ export function sendCommand(type: LiveCommand['type'], rev?: number): void {
 }
 
 /** Kell: rakenda käsk kohapeal ja kirjuta pilve — telefon lukus olles JS ei tiksu. */
-export function dispatchWatchCommand(type: LiveCommand['type']): void {
+export function dispatchWatchCommand(
+  type: LiveCommand['type'],
+  extra?: { slot?: number },
+): void {
   if (type === 'sync' || type === 'stop' || type === 'finish-exercise') {
     sendCommand(type)
     return
   }
   const snap = getLatestLiveSnapshot()
   if (snap?.session && snap.flow !== 'sauna' && snap.flow !== 'idle' && snap.flow !== 'pick') {
-    const next = applySessionCommand(snap.session, type)
+    const next = applySessionCommand(snap.session, type, Date.now(), extra)
     if (next !== snap.session) {
-      sendCommand(type, next.rev)
+      sendCommand(type, { rev: next.rev, slot: extra?.slot })
       publishSnapshot(sessionToSnapshot(next))
       return
     }
   }
-  sendCommand(type)
+  sendCommand(type, extra)
 }
 
 export function subscribeSnapshot(onSnap: (snap: LiveSnapshot) => void): () => void {

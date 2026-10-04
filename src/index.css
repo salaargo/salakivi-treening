@@ -348,8 +348,8 @@ select:focus {
 }
 
 .mix-tab.is-on {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
+  background: #f5e06a;
+  color: #2a2408;
 }
 
 .set-jump-grid {
@@ -534,6 +534,50 @@ select:focus {
 
 .rest-fullscreen {
   background: rgba(8, 10, 6, 0.92);
+}
+
+.rest-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  margin: 0.35rem 0 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
+  background: color-mix(in srgb, #f5e06a 16%, var(--surface));
+  border: 1px solid color-mix(in srgb, #f5e06a 45%, transparent);
+}
+
+.rest-banner-main {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.rest-banner-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.rest-banner-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.35rem;
+}
+
+.rest-banner-next {
+  margin: 0;
+  flex: 1 1 8rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.rest-banner-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
 }
 
 .rest-card {
@@ -1426,6 +1470,40 @@ html.is-watch .watch-bezel {
   text-align: left;
 }
 
+.watch-pair-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  width: 100%;
+}
+
+.watch-pair-btn {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  color: var(--muted);
+  font: inherit;
+  font-weight: 800;
+  font-size: clamp(0.85rem, 4.2vw, 1.05rem);
+  text-align: left;
+}
+
+.watch-pair-btn.is-next {
+  background: #f5e06a;
+  color: #2a2408;
+}
+
+.watch-pair-btn:disabled {
+  opacity: 1;
+}
+
 html.is-watch,
 html.is-watch body,
 html.is-watch #root {
@@ -1471,6 +1549,11 @@ html.is-watch .watch-clock {
 
 html.is-watch .watch-remain-row {
   font-size: clamp(1.7rem, 8.5vw, 2.4rem);
+}
+
+html.is-watch .watch-pair-btn {
+  font-size: clamp(1.35rem, 6.5vw, 1.9rem);
+  min-height: 2.4rem;
 }
 
 html.is-watch .watch-remain-name {
