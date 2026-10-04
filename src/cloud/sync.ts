@@ -1,9 +1,16 @@
 import type { AppState } from '../types'
 import { createStarterState } from '../seed/starterState'
-import { parseAppState, saveState } from '../storage'
+import { loadState, parseAppState, saveState } from '../storage'
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import { isAdminEmail } from '../admin'
-import { getLatestLiveSnapshot, snapshotShouldReplace, type LiveSnapshot } from '../live/remote'
+import {
+  getLatestLiveSnapshot,
+  hydrateLiveSnapshot,
+  liveFromState,
+  pullRemoteSnapshot,
+  snapshotShouldReplace,
+} from '../live/remote'
+import { mergeAppLogs } from '../workoutResume'
 
 export { isCloudEnabled }
 
@@ -206,11 +213,25 @@ export async function loadCloudState(userId: string): Promise<AppState> {
 
   if (data?.state) {
     const parsed = parseAppState(data.state)
-    saveState(parsed)
-    if (isAdminEmail(email)) {
-      void ensureTemplateFromAdmin(parsed)
+    const local = loadState()
+    const cloudLive = liveFromState(data.state)
+    const localLive = getLatestLiveSnapshot()
+    const pulled = await pullRemoteSnapshot(userId)
+    let bestLive =
+      cloudLive && snapshotShouldReplace(cloudLive, localLive)
+        ? cloudLive
+        : (localLive ?? cloudLive)
+    if (pulled && snapshotShouldReplace(pulled, bestLive)) bestLive = pulled
+    hydrateLiveSnapshot(bestLive)
+    const merged: AppState = {
+      ...parsed,
+      logs: mergeAppLogs(parsed.logs, local.logs, bestLive?.session?.log ?? null),
     }
-    return parsed
+    saveState(merged)
+    if (isAdminEmail(email)) {
+      void ensureTemplateFromAdmin(merged)
+    }
+    return merged
   }
 
   const fromTemplate = await loadProgramTemplate()
@@ -242,7 +263,7 @@ export async function saveCloudState(userId: string, state: AppState): Promise<v
     existingRow?.state && typeof existingRow.state === 'object'
       ? (existingRow.state as Record<string, unknown>)
       : {}
-  const existingLive = (existing.__live as LiveSnapshot | undefined)?.v === 1 ? (existing.__live as LiveSnapshot) : null
+  const existingLive = liveFromState(existing)
   const localLive = getLatestLiveSnapshot()
   const keepLive =
     localLive && snapshotShouldReplace(localLive, existingLive)

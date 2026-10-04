@@ -9,6 +9,7 @@ import {
 } from '../dates'
 import { getPlanForDate, getPhaseForDate, getWeekTemplateForDate, todayKey, dayLogHasIncomplete } from '../storage'
 import { phaseToneKey } from '../phases'
+import { dayLogInProgress } from '../workoutResume'
 
 interface WeekScreenProps {
   state: AppState
@@ -64,12 +65,13 @@ export function WeekScreen({
           const log = state.logs[key]
           const partial = Boolean(log?.finishedAt && dayLogHasIncomplete(log))
           const done = Boolean(log?.finishedAt && !dayLogHasIncomplete(log))
+          const inProgress = !done && !partial && dayLogInProgress(log)
 
           return (
             <li key={key}>
               <button
                 type="button"
-                className={`day-card ${isToday ? 'is-today' : ''} ${plan ? '' : 'is-rest'} ${done ? 'is-done' : ''} ${partial ? 'is-partial' : ''}`}
+                className={`day-card ${isToday ? 'is-today' : ''} ${plan ? '' : 'is-rest'} ${done ? 'is-done' : ''} ${partial ? 'is-partial' : ''} ${inProgress ? 'is-in-progress' : ''}`}
                 onClick={() => plan && onSelectDay(key)}
                 disabled={!plan}
               >
@@ -88,6 +90,7 @@ export function WeekScreen({
                       </span>
                       <p className="day-plan">{plan.name}</p>
                       {done && <p className="done-tag">Tehtud</p>}
+                      {inProgress && <p className="in-progress-tag">Pooleli</p>}
                       {partial && <p className="missed-tag">Tegemata jäi</p>}
                     </>
                   ) : (

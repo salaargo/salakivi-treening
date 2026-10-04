@@ -19,7 +19,7 @@ Ava `http://localhost:43173`.
 - **Segamini (kaks harjutust):** paus ainult pärast teist harjutust. Taimer käib kella järgi (`endsAt`) ja taastub ekraani avamisel.
 - Järgmisel treeningul näitab valitud pink **eelmise korra viimast raskust**.
 - Telefonis püstivaade (ei reageeri põõramisele); arvutis laiem paigutus ja **Ajalugu** tabel (ainult enda logid).
-- **Nutikell:** Seaded → Galaxy Watch (ümar, `?kell=galaxy`) kella internetibrauseris. Apple Watchil ei ole Safari/Chrome’i; `?kell=apple` avaneb ainult sõnumi/meili lingist piiratud veebivaates ja tihti ei tööta.
+- **Nutikell:** Seaded → Galaxy Watch (ümar, `?kell=galaxy`) või Apple Watch (kandiline, `?kell=apple`). Mõlemal kellal on Start, Tehtud, paus ja järgmise harjutuse valik (kollane). Avage vastav link kellas ja logige samasse kontosse.
 - **Faasid** on vabalt muudetavad: Seaded → Faasid.
 - **Admin (Argo):** Seaded → kasutajate nimekiri ja näidiskava andmine.
 

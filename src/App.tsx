@@ -48,12 +48,17 @@ export default function App() {
   const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [remoteSnap, setRemoteSnap] = useState<LiveSnapshot | null>(null)
   const skipCloudSave = useRef(true)
+  const persistTimerRef = useRef<number | null>(null)
+  const stateRef = useRef(state)
+  stateRef.current = state
+  const userIdRef = useRef<string | null>(null)
   const liveWorkoutLogRef = useRef<(() => DayLog | null) | null>(null)
   const registerLiveWorkoutLog = useCallback((getter: (() => DayLog | null) | null) => {
     liveWorkoutLogRef.current = getter
   }, [])
 
   const userId = session?.user.id ?? null
+  userIdRef.current = userId
   const userEmail = session?.user.email ?? ''
   const [displayName, setDisplayName] = useState('')
 
@@ -108,6 +113,19 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [cloud])
 
+  const flushCloudSave = useCallback(() => {
+    saveState(stateRef.current)
+    if (persistTimerRef.current != null) {
+      window.clearTimeout(persistTimerRef.current)
+      persistTimerRef.current = null
+    }
+    const uid = userIdRef.current
+    if (!cloud || !uid || skipCloudSave.current) return
+    void saveCloudState(uid, stateRef.current)
+      .then(() => setCloudStatus('saved'))
+      .catch(() => setCloudStatus('error'))
+  }, [cloud])
+
   useEffect(() => {
     saveState(state)
     if (!cloud || !userId) return
@@ -117,14 +135,37 @@ export default function App() {
     }
 
     setCloudStatus('saving')
-    const timer = window.setTimeout(() => {
+    persistTimerRef.current = window.setTimeout(() => {
+      persistTimerRef.current = null
       void saveCloudState(userId, state)
         .then(() => setCloudStatus('saved'))
         .catch(() => setCloudStatus('error'))
     }, 700)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      if (persistTimerRef.current != null) {
+        window.clearTimeout(persistTimerRef.current)
+        persistTimerRef.current = null
+        if (document.visibilityState === 'hidden') {
+          void saveCloudState(userId, state).catch(() => setCloudStatus('error'))
+        }
+      }
+    }
   }, [state, userId, cloud])
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushCloudSave()
+    }
+    window.addEventListener('pagehide', flushCloudSave)
+    window.addEventListener('beforeunload', flushCloudSave)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      window.removeEventListener('pagehide', flushCloudSave)
+      window.removeEventListener('beforeunload', flushCloudSave)
+      document.removeEventListener('visibilitychange', onHide)
+    }
+  }, [flushCloudSave])
 
   useEffect(() => {
     if (watchMode) return

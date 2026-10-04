@@ -214,10 +214,17 @@ export function getLatestLiveSnapshot(): LiveSnapshot | null {
   return lastSnap ?? readStoredSnapshot()
 }
 
-function liveFromState(state: unknown): LiveSnapshot | null {
+export function liveFromState(state: unknown): LiveSnapshot | null {
   if (!state || typeof state !== 'object') return null
   const snap = (state as { __live?: LiveSnapshot }).__live
   return snap?.v === 1 ? snap : null
+}
+
+/** Taasta kella/telefoni seanss pärast lehe uuesti avamist, ilma uut epoch'i loomata. */
+export function hydrateLiveSnapshot(snap: LiveSnapshot | null | undefined): LiveSnapshot | null {
+  if (!snap || snap.v !== 1) return lastSnap
+  applySnap(snap)
+  return lastSnap
 }
 
 async function persistCloud(snap: LiveSnapshot): Promise<void> {

@@ -20,6 +20,7 @@ import { completedSetCount } from '../live/sessionEngine'
 import { isWatchMode, lockPortrait, useScreenWakeLock } from '../orientation'
 import { clearRestSession, loadRestSession, saveRestSession } from '../restSession'
 import { useWorkoutKeepAlive } from '../keepAlive'
+import { bootWorkout } from '../workoutResume'
 
 interface WorkoutScreenProps {
   state: AppState
@@ -180,23 +181,23 @@ export function WorkoutScreen({
   )
 
   const restoredRest = loadRestSession(dateKey)
-  const [log, setLog] = useState<DayLog | null>(() => buildInitialLog(state, dateKey))
-  const [flow, setFlow] = useState<Flow>(() => {
-    const initial = buildInitialLog(state, dateKey)
-    if (!initial) return 'pick'
-    const exercises = plan ? getExercisesForPlan(state, plan.id) : []
-    if (initial.finishedAt || (exercises.length > 0 && allExercisesDone(initial, exercises))) {
-      return 'sauna'
-    }
-    if (restoredRest) return 'resting'
-    return 'pick'
-  })
-  const [selected, setSelected] = useState<number[]>(() => restoredRest?.selected ?? [])
-  const [activeSlot, setActiveSlot] = useState(() => restoredRest?.activeSlot ?? 0)
-  const [restSeconds, setRestSeconds] = useState(restoredRest?.durationSeconds ?? 60)
-  const [restHint, setRestHint] = useState(restoredRest?.hint ?? '')
-  const [restNext, setRestNext] = useState(restoredRest?.next ?? '')
-  const [restEndsAt, setRestEndsAt] = useState<number | null>(restoredRest?.endsAt ?? null)
+  const [boot] = useState(() =>
+    bootWorkout({
+      dateKey,
+      log: buildInitialLog(state, dateKey),
+      exercises: plan ? getExercisesForPlan(state, plan.id) : [],
+      snap: getLatestLiveSnapshot(),
+      rest: restoredRest,
+    }),
+  )
+  const [log, setLog] = useState<DayLog | null>(() => boot.log)
+  const [flow, setFlow] = useState<Flow>(() => boot.flow)
+  const [selected, setSelected] = useState<number[]>(() => boot.selected)
+  const [activeSlot, setActiveSlot] = useState(() => boot.activeSlot)
+  const [restSeconds, setRestSeconds] = useState(boot.restSeconds)
+  const [restHint, setRestHint] = useState(boot.restHint)
+  const [restNext, setRestNext] = useState(boot.restNext)
+  const [restEndsAt, setRestEndsAt] = useState<number | null>(boot.restEndsAt)
   const [showSetMenu, setShowSetMenu] = useState(false)
   const [addPink, setAddPink] = useState<AddPinkForm | null>(null)
   const [confirm, setConfirm] = useState<null | 'abort-set' | 'abort-exercise'>(null)
@@ -220,21 +221,19 @@ export function WorkoutScreen({
   const longPressTimer = useRef<number | null>(null)
   const longPressFired = useRef(false)
   const tehtudArmed = useRef(false)
-  const pendingAfterRest = useRef<'ready' | 'pick'>(restoredRest?.pending ?? 'ready')
-  const sessionStartedAt = useRef<number | null>(
-    log?.startedAt ? Date.parse(log.startedAt) || null : null,
-  )
-  const setStartedAt = useRef<number | null>(null)
-  const lastTehtudAt = useRef<number | null>(null)
+  const pendingAfterRest = useRef<'ready' | 'pick'>(boot.pendingAfterRest)
+  const sessionStartedAt = useRef<number | null>(boot.sessionStartedAt)
+  const setStartedAt = useRef<number | null>(boot.setStartedAt)
+  const lastTehtudAt = useRef<number | null>(boot.lastTehtudAt)
   const lastPublishAt = useRef(0)
-  const liveEpochRef = useRef(Date.now())
-  const sessionRevRef = useRef(0)
+  const liveEpochRef = useRef(boot.epoch)
+  const sessionRevRef = useRef(boot.rev)
   const flowRef = useRef(flow)
   const logRef = useRef(log)
   flowRef.current = flow
   logRef.current = log
-  const workMsAcc = useRef(log?.workMs ?? 0)
-  const restMsAcc = useRef(log?.restMs ?? 0)
+  const workMsAcc = useRef(boot.workMs)
+  const restMsAcc = useRef(boot.restMs)
   const commandRef = useRef({
     flow: 'pick' as Flow,
     onStart: () => {},
@@ -253,12 +252,13 @@ export function WorkoutScreen({
   )
 
   const hydrateSession = useCallback(
-    (s: LiveSession) => {
+    (s: LiveSession, epoch?: number) => {
       const local = logRef.current
       const incomingSets = completedSetCount(s.log)
       const localSets = completedSetCount(local)
       const logToUse = local && incomingSets < localSets ? local : s.log
       sessionRevRef.current = Math.max(s.rev ?? 0, sessionRevRef.current)
+      if (epoch != null && epoch > liveEpochRef.current) liveEpochRef.current = epoch
       commitLog(logToUse)
       setFlow(s.flow === 'idle' ? 'pick' : s.flow)
       setSelected(s.selected)
@@ -280,6 +280,24 @@ export function WorkoutScreen({
   function bumpSessionRev() {
     sessionRevRef.current += 1
   }
+
+  useEffect(() => {
+    if (boot.log) onUpdateLog(boot.log)
+    if (boot.flow === 'resting' && boot.restEndsAt) {
+      saveRestSession({
+        dateKey,
+        endsAt: boot.restEndsAt,
+        durationSeconds: boot.restSeconds,
+        hint: boot.restHint,
+        next: boot.restNext,
+        pending: boot.pendingAfterRest,
+        selected: boot.selected,
+        activeSlot: boot.activeSlot,
+      })
+    }
+    // Ainult esimesel avamisel — taasta pilve/kella seanss App state'i.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!onRegisterLiveLog) return
@@ -395,8 +413,7 @@ export function WorkoutScreen({
         )
       ) {
         if (snap.dateKey && snap.dateKey !== dateKey) return
-        if ((snap.epoch ?? 0) < liveEpochRef.current) return
-        hydrateSession(snap.session!)
+        hydrateSession(snap.session!, snap.epoch)
       }
     })
   }, [dateKey, hydrateSession])
@@ -441,8 +458,8 @@ export function WorkoutScreen({
 
   useEffect(() => {
     if (isWatchMode()) return
-    const publish = () => {
-      if (document.visibilityState === 'hidden') return
+    const publish = (evenIfHidden = false) => {
+      if (document.visibilityState === 'hidden' && !evenIfHidden) return
       const other =
         selected.length === 2 ? liveExercises[selected[activeSlot === 0 ? 1 : 0]] : undefined
       const session: LiveSession | undefined = log
@@ -515,7 +532,7 @@ export function WorkoutScreen({
       void pullRemoteSnapshot().then((snap) => {
         if (
           snap?.dateKey === dateKey &&
-          (snap.epoch ?? 0) >= liveEpochRef.current &&
+          snap.session &&
           snapshotIsAhead(
             snap,
             sessionRevRef.current,
@@ -523,7 +540,7 @@ export function WorkoutScreen({
             flowRef.current,
           )
         ) {
-          hydrateSession(snap.session!)
+          hydrateSession(snap.session, snap.epoch)
           return
         }
         publish()
@@ -534,14 +551,22 @@ export function WorkoutScreen({
       if (document.visibilityState === 'hidden') return
       catchUpFromWatch()
     }
+    const flushPublish = () => publish(true)
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushPublish()
+    }
     document.addEventListener('visibilitychange', onWake)
+    document.addEventListener('visibilitychange', onHide)
     window.addEventListener('focus', onWake)
     window.addEventListener('pageshow', onWake)
+    window.addEventListener('pagehide', flushPublish)
     return () => {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onWake)
+      document.removeEventListener('visibilitychange', onHide)
       window.removeEventListener('focus', onWake)
       window.removeEventListener('pageshow', onWake)
+      window.removeEventListener('pagehide', flushPublish)
     }
   }, [
     flow,
@@ -587,7 +612,7 @@ export function WorkoutScreen({
             flowRef.current,
           )
         ) {
-          if (remote?.session) hydrateSession(remote.session)
+          if (remote?.session) hydrateSession(remote.session, remote.epoch)
           return
         }
         publishNowRef.current()
@@ -595,7 +620,7 @@ export function WorkoutScreen({
       }
       const remote = getLatestLiveSnapshot()
       if (cmd.rev != null && remote?.session && (remote.session.rev ?? 0) >= cmd.rev) {
-        hydrateSession(remote.session)
+        hydrateSession(remote.session, remote.epoch)
         return
       }
       if (cmd.type === 'start' && (handlers.flow === 'ready' || handlers.flow === 'resting')) {
