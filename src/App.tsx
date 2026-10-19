@@ -79,12 +79,14 @@ export default function App() {
       setSession(current)
       if (current?.user) {
         try {
-          const loaded = await loadCloudState(current.user.id)
-          setState(loaded)
-          skipCloudSave.current = true
-          const meta = displayNameFromMetadata(current.user.user_metadata as Record<string, unknown>)
-          const profile = await loadMyProfile(current.user.id)
-          setDisplayName(profile?.display_name || meta)
+          if (!watchMode) {
+            const loaded = await loadCloudState(current.user.id)
+            setState(loaded)
+            skipCloudSave.current = true
+            const meta = displayNameFromMetadata(current.user.user_metadata as Record<string, unknown>)
+            const profile = await loadMyProfile(current.user.id)
+            setDisplayName(profile?.display_name || meta)
+          }
         } catch (err) {
           setBootError(err instanceof Error ? err.message : 'Pilve andmete laadimine ebaõnnestus.')
         }
@@ -213,18 +215,20 @@ export default function App() {
     const { data, error } = await supabase.auth.getSession()
     if (error || !data.session?.user) return
     setSession(data.session)
-    const loaded = await loadCloudState(data.session.user.id)
-    setState(loaded)
-    skipCloudSave.current = true
-    const meta = displayNameFromMetadata(data.session.user.user_metadata as Record<string, unknown>)
-    try {
-      const profile = await loadMyProfile(data.session.user.id)
-      setDisplayName(profile?.display_name || meta)
-    } catch {
-      setDisplayName(meta)
+    if (!watchMode) {
+      const loaded = await loadCloudState(data.session.user.id)
+      setState(loaded)
+      skipCloudSave.current = true
+      const meta = displayNameFromMetadata(data.session.user.user_metadata as Record<string, unknown>)
+      try {
+        const profile = await loadMyProfile(data.session.user.id)
+        setDisplayName(profile?.display_name || meta)
+      } catch {
+        setDisplayName(meta)
+      }
+      setScreen({ name: 'home' })
     }
-    setScreen({ name: 'home' })
-  }, [])
+  }, [watchMode])
 
   async function handleLogout() {
     const supabase = getSupabase()
@@ -283,6 +287,19 @@ export default function App() {
     .filter(Boolean)
     .join(' ')
 
+  if (watchMode) {
+    return (
+      <div className={shellClass}>
+        <WatchRemoteScreen
+          snap={remoteSnap}
+          face={face}
+          needsLogin={Boolean(cloud && authReady && !userId)}
+          onLogin={() => void handleSignedIn()}
+        />
+      </div>
+    )
+  }
+
   if (!authReady) {
     return (
       <div className={shellClass}>
@@ -308,14 +325,6 @@ export default function App() {
       <div className="app-shell">
         {bootError && <p className="auth-error pad">{bootError}</p>}
         <AuthScreen onSignedIn={() => void handleSignedIn()} />
-      </div>
-    )
-  }
-
-  if (watchMode) {
-    return (
-      <div className={shellClass}>
-        <WatchRemoteScreen snap={remoteSnap} face={face} />
       </div>
     )
   }

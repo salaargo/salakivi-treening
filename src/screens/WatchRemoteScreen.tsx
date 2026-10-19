@@ -3,10 +3,13 @@ import type { LiveSnapshot } from '../live/remote'
 import { dispatchWatchCommand, sendCommand } from '../live/remote'
 import { remainingRestSeconds } from '../components/RestTimer'
 import type { WatchFace } from '../orientation'
+import { getSupabase } from '../lib/supabase'
 
 interface WatchRemoteScreenProps {
   snap: LiveSnapshot | null
   face: WatchFace
+  needsLogin?: boolean
+  onLogin?: () => void
 }
 
 function formatClock(totalSec: number): string {
@@ -116,10 +119,33 @@ function vibrateWatch() {
   }
 }
 
-export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
+export function WatchRemoteScreen({ snap, face, needsLogin = false, onLogin }: WatchRemoteScreenProps) {
   const [, setTick] = useState(0)
   const [held, setHeld] = useState<'active' | null>(null)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const [loginBusy, setLoginBusy] = useState(false)
   const buzzedRest = useRef<number | null>(null)
+
+  async function handleWatchLogin(event: React.FormEvent) {
+    event.preventDefault()
+    setLoginError(null)
+    setLoginBusy(true)
+    try {
+      const supabase = getSupabase()
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+      if (error) throw error
+      onLogin?.()
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : 'Sisselogimine ebaõnnestus.')
+    } finally {
+      setLoginBusy(false)
+    }
+  }
 
   useEffect(() => {
     const id = window.setInterval(() => setTick((n) => n + 1), 250)
@@ -166,6 +192,40 @@ export function WatchRemoteScreen({ snap, face }: WatchRemoteScreenProps) {
   const showTehtud = flow === 'active'
   const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'pick'
   const canPickPair = Boolean(snap) && (flow === 'ready' || flow === 'resting')
+
+  if (needsLogin) {
+    return (
+      <div className={`watch-remote watch-face-${face}`}>
+        <div className="watch-bezel">
+          <p className="watch-wait">Salakivi kell</p>
+          <p className="watch-wait-sub">Logi sisse sama kontoga</p>
+          <form className="watch-login" onSubmit={(event) => void handleWatchLogin(event)}>
+            <input
+              type="email"
+              inputMode="email"
+              autoComplete="username"
+              placeholder="E-post"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+            <input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Parool"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+            {loginError && <p className="watch-wait-sub">{loginError}</p>}
+            <button type="submit" className="btn btn-tehtud-lg watch-start" disabled={loginBusy}>
+              {loginBusy ? '…' : 'Sisene'}
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={`watch-remote watch-face-${face}`}>

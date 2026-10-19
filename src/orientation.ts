@@ -16,9 +16,15 @@ export function watchFace(): WatchFace {
 
 export function watchUrl(face: WatchFace = 'round'): string {
   const url = new URL(window.location.href)
-  url.searchParams.delete('kuju')
-  url.searchParams.set('kell', face === 'square' ? 'apple' : 'galaxy')
   url.hash = ''
+  url.search = ''
+  if (face === 'square') {
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')
+    url.pathname = base + 'kell.html'
+    url.searchParams.set('kell', 'apple')
+    return url.toString()
+  }
+  url.searchParams.set('kell', 'galaxy')
   return url.toString()
 }
 

@@ -1418,47 +1418,61 @@ html.is-phone.is-landscape #root {
 }
 
 .watch-remote {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: 0.35rem;
+  min-height: 100%;
+  min-height: 100svh;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0.2rem;
 }
 
 .watch-bezel {
-  width: min(100vw, 100dvh);
-  height: min(100vw, 100dvh);
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 14%;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  padding: 0.35rem;
   box-sizing: border-box;
   text-align: center;
 }
 
 html.is-watch .watch-bezel {
-  padding: 10%;
+  padding: 0.25rem;
   gap: 0.28rem;
 }
 
 .watch-face-square .watch-bezel {
-  border-radius: 16%;
+  border-radius: 12px;
   background: #0c100a;
-  border: 3px solid #2c3822;
-  padding: 4% 5%;
-  gap: 0.14rem;
+  border: 2px solid #2c3822;
+  padding: 0.3rem;
+  gap: 0.2rem;
   width: 100%;
-  height: 100%;
-  max-width: 100vw;
-  max-height: 100dvh;
+  height: auto;
+  max-width: none;
+  max-height: none;
   overflow: auto;
 }
 
 .watch-face-square.watch-remote {
   padding: 0.1rem;
+}
+
+.watch-login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.watch-login input {
+  font-size: 16px;
+  min-height: 2.1rem;
+  color: #fff;
+  background: #1a1e16;
 }
 
 .watch-remain {
@@ -1531,12 +1545,14 @@ html.is-watch body,
 html.is-watch #root {
   transform: none !important;
   width: 100% !important;
-  height: 100% !important;
+  height: auto !important;
+  min-height: 100% !important;
   max-width: none !important;
   left: auto !important;
   top: auto !important;
   position: relative !important;
-  overflow: hidden;
+  overflow: auto;
+  color: #fff;
 }
 
 html.is-watch .app-shell {
@@ -1553,8 +1569,9 @@ html.is-watch .app-shell {
 
 .watch-wait {
   margin: 0;
-  color: var(--muted);
-  font-weight: 600;
+  color: #fff;
+  font-weight: 700;
+  text-shadow: 0 1px 2px #000;
 }
 
 .watch-wait-sub {

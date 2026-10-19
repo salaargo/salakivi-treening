@@ -828,10 +828,10 @@ export function SettingsScreen({
       <section className="settings-block">
         <h3>Nutikell</h3>
         <p className="muted small">
-          Galaxy Watch (ümar) ja Apple Watch (kandiline) kasutavad sama kellavaadet: Start, Tehtud,
-          pausitaimer, järelejäänud seeriad ja järgmise harjutuse valik (kollane). Avage kellas
-          vastav link ja logige samasse kontosse. Telefonis valige harjutus ja pink — kell juhib
-          seeriat edasi.
+          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: kopeeri Apple link, saada see
+          endale sõnumiga ja ava kellas — kellal on oma lihtne leht (suur kiri, Start/Tehtud), sest
+          tavaline äpp jääb seal tühjaks. Mõlemal logi sisse sama kontoga; telefonis vali harjutus
+          ja pink.
         </p>
         <div className="home-actions">
           <a className="btn btn-secondary full" href={galaxyHref}>
