@@ -91,6 +91,29 @@ export function SettingsScreen({
     setNameDraft(displayName)
   }, [displayName])
 
+  async function copyAppleLink() {
+    if (!userId) {
+      window.alert('Logi enne telefonis sisse, siis kopeeri Apple link uuesti.')
+      return
+    }
+    try {
+      const next = await appleWatchPairUrl(userId)
+      setAppleHref(next.href)
+      setAppleNeedsSql(next.needsSql)
+      if (next.needsSql) {
+        await navigator.clipboard?.writeText(WATCH_PAIR_SQL)
+        window.alert(
+          'Kõigepealt SQL: see on nüüd kopeeritud. supabase.com → SQL Editor → kleebi → Run (umbes 10 s). Ilma selleta jääb kell ootama. Pärast Run vajuta uuesti Kopeeri Apple link.',
+        )
+        return
+      }
+      await navigator.clipboard?.writeText(next.href)
+      window.alert('Lühike Apple link on kopeeritud. Saada see sõnumiga kellale ja ava.')
+    } catch {
+      window.alert(appleHref)
+    }
+  }
+
   async function handleSaveName() {
     if (!userEmail) return
     setNameBusy(true)
@@ -854,8 +877,8 @@ export function SettingsScreen({
         </p>
         {appleNeedsSql && (
           <p className="muted small">
-            Ühekordselt: kopeeri SQL, ava Supabase → SQL Editor → Run, siis kopeeri Apple link
-            uuesti. Ilma selleta töötab kell ainult siis, kui treeningäpp on telefonis lahti.
+            Apple Watch ootab, kuni see SQL on ühe korra käivitatud. Kopeeri SQL, ava
+            supabase.com → SQL Editor → Run (umbes 10 sekundit). Siis kopeeri Apple link.
           </p>
         )}
         <div className="home-actions">
@@ -874,38 +897,15 @@ export function SettingsScreen({
           >
             Kopeeri Galaxy link
           </button>
-          <a className="btn btn-secondary full" href={appleHref}>
-            Apple Watch (kandiline)
-          </a>
-          <button
-            type="button"
-            className="btn btn-ghost full"
-            onClick={() => {
-              const shortOk = appleHref.includes('p=')
-              void navigator.clipboard?.writeText(appleHref).then(
-                () =>
-                  window.alert(
-                    !userId
-                      ? 'Logi enne telefonis sisse, siis kopeeri Apple link uuesti.'
-                      : shortOk
-                        ? 'Lühike Apple link on kopeeritud. Saada see sõnumiga kellale ja ava.'
-                        : 'Link on kopeeritud. Kui kell ei ava, kopeeri SQL ja käivita see Supabases.',
-                  ),
-                () => window.alert(appleHref),
-              )
-            }}
-          >
-            Kopeeri Apple link
-          </button>
           {appleNeedsSql && (
             <button
               type="button"
-              className="btn btn-ghost full"
+              className="btn btn-secondary full"
               onClick={() => {
                 void navigator.clipboard?.writeText(WATCH_PAIR_SQL).then(
                   () =>
                     window.alert(
-                      'SQL on kopeeritud. Ava supabase.com → SQL Editor → kleebi → Run. Siis kopeeri Apple link uuesti.',
+                      'SQL on kopeeritud. Ava supabase.com → SQL Editor → kleebi → Run. See on ühekordne, võtab umbes 10 s. Siis kopeeri Apple link.',
                     ),
                   () => window.alert('Kopeeri fail supabase/migration_watch_pair.sql ja käivita SQL Editoris.'),
                 )
@@ -914,6 +914,12 @@ export function SettingsScreen({
               Kopeeri Apple Watchi SQL
             </button>
           )}
+          <a className="btn btn-secondary full" href={appleHref}>
+            Apple Watch (kandiline)
+          </a>
+          <button type="button" className="btn btn-ghost full" onClick={() => void copyAppleLink()}>
+            Kopeeri Apple link
+          </button>
         </div>
       </section>
 

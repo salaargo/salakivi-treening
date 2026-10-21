@@ -1,5 +1,6 @@
 import type { RealtimeChannel, Session } from '@supabase/supabase-js'
 import { getSupabase, isCloudEnabled } from './lib/supabase'
+import { getLatestLiveSnapshot } from './live/remote'
 import { watchUrl } from './orientation'
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -180,7 +181,7 @@ export function startWatchPairBeacon(userId: string): () => void {
       const { data } = await supabase.auth.getSession()
       const session = data.session
       if (!session?.access_token) return
-      const payload = authPayload(session)
+      const payload = { ...authPayload(session), snap: getLatestLiveSnapshot() }
       try {
         await channel?.send({ type: 'broadcast', event: 'auth', payload })
       } catch {

@@ -99,12 +99,14 @@ function saveAuth(next: KellAuth | null): void {
 let pairCode = pairFromUrl()
 let auth: KellAuth | null = authFromUrl() ?? readAuth()
 let useRpc = false
+let rpcMissing = false
 let snap: LiveSnapshot | null = null
 let errorText = ''
 let tick = 0
 let ws: WebSocket | null = null
 let wsRef = 1
 let hbTimer = 0
+const waitedFrom = Date.now()
 
 function esc(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
@@ -173,7 +175,13 @@ function liveFromState(state: unknown): LiveSnapshot | null {
 
 function takeAuthFromUnknown(value: unknown): void {
   if (!value || typeof value !== 'object') return
-  const rec = value as { a?: string; u?: string; r?: string; payload?: unknown }
+  const rec = value as {
+    a?: string
+    u?: string
+    r?: string
+    payload?: unknown
+    snap?: LiveSnapshot
+  }
   if (rec.a && rec.u) {
     saveAuth({
       access_token: rec.a,
@@ -181,8 +189,9 @@ function takeAuthFromUnknown(value: unknown): void {
       user_id: rec.u,
       email: '',
     })
-    return
   }
+  const maybeSnap = rec.snap as LiveSnapshot | undefined
+  if (maybeSnap && maybeSnap.v === 1) snap = maybeSnap
   if (rec.payload) takeAuthFromUnknown(rec.payload)
 }
 
@@ -261,8 +270,12 @@ async function pullViaRpc(): Promise<boolean> {
     method: 'POST',
     body: JSON.stringify({ pair: pairCode }),
   })
-  if (res.status === 404) return false
+  if (res.status === 404) {
+    rpcMissing = true
+    return false
+  }
   if (!res.ok) return false
+  rpcMissing = false
   const data = (await res.json()) as { ok?: boolean; snap?: LiveSnapshot } | LiveSnapshot | null
   if (!data) return true
   if ('ok' in data) {
@@ -449,7 +462,17 @@ function paint(): void {
   if (flow === 'sauna') parts.push('<p class="title">Sauna!</p><p class="sub">Uus trenn algab telefonist</p>')
   if (!snap || flow === 'idle') {
     parts.push('<p class="title">Salakivi kell</p>')
-    parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis ja hoia treeningäpp lahti.</p>')
+    if (rpcMissing && !auth) {
+      parts.push(
+        '<p class="sub">Kell ei saa treeningut kätte. See ei ole aeglane — telefonis Seaded → Kopeeri Apple Watchi SQL → supabase.com SQL Editor → Run. Siis uus Apple link.</p>',
+      )
+    } else if (Date.now() - waitedFrom > 8000 && !auth && !useRpc) {
+      parts.push(
+        '<p class="sub">Ühendus ei tule. Hoia treeningäpp telefonis lahti, alusta trenn, või käivita telefonis Apple Watchi SQL.</p>',
+      )
+    } else {
+      parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis.</p>')
+    }
   }
   if (errorText) parts.push('<p class="err">' + esc(errorText) + '</p>')
 
@@ -496,7 +519,7 @@ paint()
 void loop()
 window.setInterval(function () {
   void loop()
-}, 2000)
+}, 800)
 window.setInterval(function () {
   if (snap && snap.flow === 'resting') paint()
 }, 250)

@@ -27,9 +27,16 @@ function bundleKell(env: Record<string, string>, minify: boolean): Uint8Array {
   return file.contents
 }
 
+function kellVersion(): string {
+  return (process.env.GITHUB_SHA || Date.now().toString(36)).slice(0, 12)
+}
+
 function kellPlugin(mode: string): Plugin {
   const env = loadEnv(mode, process.cwd(), '')
-  const template = () => fs.readFileSync(path.resolve('kell.template.html'), 'utf8')
+  const template = () =>
+    fs
+      .readFileSync(path.resolve('kell.template.html'), 'utf8')
+      .replaceAll('__KELL_V__', kellVersion())
 
   return {
     name: 'salakivi-kell',
