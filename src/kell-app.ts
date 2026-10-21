@@ -13,10 +13,40 @@ interface KellAuth {
   email: string
 }
 
-let auth: KellAuth | null = readAuth()
+function authFromUrl(): KellAuth | null {
+  let params = new URLSearchParams(location.search)
+  if (location.hash.length > 1) {
+    const fromHash = new URLSearchParams(location.hash.replace(/^#/, ''))
+    fromHash.forEach((value, key) => {
+      if (!params.get(key)) params.set(key, value)
+    })
+  }
+  const access = params.get('a')
+  const userId = params.get('u')
+  const refresh = params.get('r') || ''
+  if (!access || !userId) return null
+  const next: KellAuth = {
+    access_token: access,
+    refresh_token: refresh,
+    user_id: userId,
+    email: '',
+  }
+  try {
+    localStorage.setItem(AUTH_KEY, JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+  try {
+    history.replaceState(null, '', location.pathname + '?kell=apple')
+  } catch {
+    /* ignore */
+  }
+  return next
+}
+
+let auth: KellAuth | null = authFromUrl() ?? readAuth()
 let snap: LiveSnapshot | null = null
 let errorText = ''
-let busy = false
 let tick = 0
 
 function readAuth(): KellAuth | null {
@@ -76,29 +106,6 @@ async function api(path: string, init: RequestInit, token?: string): Promise<Res
   return fetch(SUPABASE_URL + path, {
     ...init,
     headers: { ...headers(token), ...(init.headers as Record<string, string> | undefined) },
-  })
-}
-
-async function login(email: string, password: string): Promise<void> {
-  const res = await api('/auth/v1/token?grant_type=password', {
-    method: 'POST',
-    body: JSON.stringify({ email: email, password: password }),
-  })
-  const data = (await res.json()) as {
-    access_token?: string
-    refresh_token?: string
-    user?: { id?: string; email?: string }
-    msg?: string
-    error_description?: string
-  }
-  if (!res.ok || !data.access_token || !data.user?.id) {
-    throw new Error(data.error_description || data.msg || 'Sisselogimine ebaõnnestus.')
-  }
-  saveAuth({
-    access_token: data.access_token,
-    refresh_token: data.refresh_token || '',
-    user_id: data.user.id,
-    email: data.user.email || email,
   })
 }
 
@@ -219,15 +226,9 @@ function paint(): void {
   if (!auth) {
     root.innerHTML =
       '<p class="title">Salakivi kell</p>' +
-      '<p class="sub">Logi sisse sama kontoga mis telefonis.</p>' +
-      (errorText ? '<p class="err">' + esc(errorText) + '</p>' : '') +
-      '<input id="kell-email" type="email" placeholder="E-post" autocomplete="username" />' +
-      '<input id="kell-pass" type="password" placeholder="Parool" autocomplete="current-password" />' +
-      '<button class="start" id="kell-login" type="button">' +
-      (busy ? '…' : 'Sisene') +
-      '</button>'
-    const btn = document.getElementById('kell-login')
-    if (btn) btn.onclick = onLoginClick
+      '<p class="sub">Kellas ei saa e-posti trükkida.</p>' +
+      '<p class="sub">Telefonis: Seaded → Kopeeri Apple link (oled juba sisse logitud) → saada sõnumiga kellale ja ava uuesti.</p>' +
+      (errorText ? '<p class="err">' + esc(errorText) + '</p>' : '')
     return
   }
 
@@ -282,7 +283,6 @@ function paint(): void {
     parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis.</p>')
   }
 
-  parts.push('<button class="ghost" id="kell-out" type="button">Logi välja</button>')
   root.innerHTML = parts.join('')
 
   const startBtn = document.getElementById('kell-start')
@@ -300,14 +300,6 @@ function paint(): void {
       void runCommand('tehtud')
     }
   }
-  const outBtn = document.getElementById('kell-out')
-  if (outBtn) {
-    outBtn.onclick = function () {
-      saveAuth(null)
-      snap = null
-      paint()
-    }
-  }
   const pairBtns = root.querySelectorAll('[data-slot]')
   for (let i = 0; i < pairBtns.length; i++) {
     const btn = pairBtns[i] as HTMLButtonElement
@@ -316,24 +308,6 @@ function paint(): void {
       if (slot === 0 || slot === 1) void runCommand('select-slot', slot)
     }
   }
-}
-
-async function onLoginClick(): Promise<void> {
-  const emailEl = document.getElementById('kell-email') as HTMLInputElement | null
-  const passEl = document.getElementById('kell-pass') as HTMLInputElement | null
-  const email = emailEl ? emailEl.value.trim() : ''
-  const password = passEl ? passEl.value : ''
-  errorText = ''
-  busy = true
-  paint()
-  try {
-    await login(email, password)
-    await pullSnap()
-  } catch (err) {
-    errorText = err instanceof Error ? err.message : 'Sisselogimine ebaõnnestus.'
-  }
-  busy = false
-  paint()
 }
 
 async function loop(): Promise<void> {

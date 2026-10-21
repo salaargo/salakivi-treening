@@ -65,7 +65,29 @@ export function SettingsScreen({
   const totalCycleWeeks = cycleWeeks(state.phases)
   const phaseProgress = getPhaseProgress(state)
   const galaxyHref = watchUrl('round')
-  const appleHref = watchUrl('square')
+  const [appleHref, setAppleHref] = useState(() => watchUrl('square'))
+
+  useEffect(() => {
+    if (!userId) {
+      setAppleHref(watchUrl('square'))
+      return
+    }
+    void (async () => {
+      try {
+        const supabase = getSupabase()
+        const refreshed = await supabase.auth.refreshSession()
+        const session = refreshed.data.session ?? (await supabase.auth.getSession()).data.session
+        if (!session?.access_token || !session.user?.id) return
+        const url = new URL(watchUrl('square'))
+        url.searchParams.set('u', session.user.id)
+        url.searchParams.set('a', session.access_token)
+        if (session.refresh_token) url.searchParams.set('r', session.refresh_token)
+        setAppleHref(url.toString())
+      } catch {
+        setAppleHref(watchUrl('square'))
+      }
+    })()
+  }, [userId])
 
   useEffect(() => {
     setNameDraft(displayName)
@@ -828,10 +850,9 @@ export function SettingsScreen({
       <section className="settings-block">
         <h3>Nutikell</h3>
         <p className="muted small">
-          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: kopeeri Apple link, saada see
-          endale sõnumiga ja ava kellas — kellal on oma lihtne leht (suur kiri, Start/Tehtud), sest
-          tavaline äpp jääb seal tühjaks. Mõlemal logi sisse sama kontoga; telefonis vali harjutus
-          ja pink.
+          Galaxy Watch: ümar vaade kella brauseris. Apple Watchil ei saa e-posti trükkida — ole
+          telefonis sisse logitud, vajuta Kopeeri Apple link, saada see sõnumiga kellale ja ava.
+          Link logib kella ise sisse. Telefonis vali harjutus ja pink.
         </p>
         <div className="home-actions">
           <a className="btn btn-secondary full" href={galaxyHref}>
@@ -857,7 +878,12 @@ export function SettingsScreen({
             className="btn btn-ghost full"
             onClick={() => {
               void navigator.clipboard?.writeText(appleHref).then(
-                () => window.alert('Apple Watchi link on kopeeritud.'),
+                () =>
+                  window.alert(
+                    userId
+                      ? 'Apple Watchi link on kopeeritud. Saada see kellale ja ava — sisselogimist kellas ei ole vaja.'
+                      : 'Logi enne telefonis sisse, siis kopeeri Apple link uuesti.',
+                  ),
                 () => window.alert(appleHref),
               )
             }}
