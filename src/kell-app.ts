@@ -99,7 +99,6 @@ function saveAuth(next: KellAuth | null): void {
 let pairCode = pairFromUrl()
 let auth: KellAuth | null = authFromUrl() ?? readAuth()
 let useRpc = false
-let rpcMissing = false
 let snap: LiveSnapshot | null = null
 let errorText = ''
 let tick = 0
@@ -264,18 +263,44 @@ function connectPairSocket(): void {
   }
 }
 
+let relayEs: EventSource | null = null
+
+function connectRelay(): void {
+  if (!pairCode || auth) return
+  if (relayEs && relayEs.readyState !== EventSource.CLOSED) return
+  try {
+    relayEs = new EventSource('https://ntfy.sh/skw-' + pairCode + '/sse?since=all')
+  } catch {
+    return
+  }
+  relayEs.addEventListener('message', function (ev) {
+    try {
+      const data = JSON.parse(String((ev as MessageEvent).data)) as { message?: string }
+      if (!data.message) return
+      takeAuthFromUnknown(JSON.parse(data.message))
+      if (auth) {
+        errorText = ''
+        try {
+          relayEs?.close()
+        } catch {
+          /* ignore */
+        }
+        void pullSnap().then(paint)
+      }
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
 async function pullViaRpc(): Promise<boolean> {
   if (!pairCode) return false
   const res = await api('/rest/v1/rpc/watch_pull', {
     method: 'POST',
     body: JSON.stringify({ pair: pairCode }),
   })
-  if (res.status === 404) {
-    rpcMissing = true
-    return false
-  }
+  if (res.status === 404) return false
   if (!res.ok) return false
-  rpcMissing = false
   const data = (await res.json()) as { ok?: boolean; snap?: LiveSnapshot } | LiveSnapshot | null
   if (!data) return true
   if ('ok' in data) {
@@ -297,6 +322,7 @@ async function pullViaRpc(): Promise<boolean> {
 }
 
 async function pullSnap(): Promise<void> {
+  if (!auth && pairCode) connectRelay()
   if (pairCode && !useRpc) {
     const ok = await pullViaRpc()
     if (ok && useRpc) return
@@ -462,13 +488,9 @@ function paint(): void {
   if (flow === 'sauna') parts.push('<p class="title">Sauna!</p><p class="sub">Uus trenn algab telefonist</p>')
   if (!snap || flow === 'idle') {
     parts.push('<p class="title">Salakivi kell</p>')
-    if (rpcMissing && !auth) {
+    if (Date.now() - waitedFrom > 8000 && !auth && !useRpc) {
       parts.push(
-        '<p class="sub">Kell ei saa treeningut kätte. See ei ole aeglane — telefonis Seaded → Kopeeri Apple Watchi SQL → supabase.com SQL Editor → Run. Siis uus Apple link.</p>',
-      )
-    } else if (Date.now() - waitedFrom > 8000 && !auth && !useRpc) {
-      parts.push(
-        '<p class="sub">Ühendus ei tule. Hoia treeningäpp telefonis lahti, alusta trenn, või käivita telefonis Apple Watchi SQL.</p>',
+        '<p class="sub">Hoia treeningäpp telefonis lahti ja alusta trenn. Kui see ei muutu, kopeeri telefonis uus Apple link.</p>',
       )
     } else {
       parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis.</p>')
@@ -510,7 +532,10 @@ async function loop(): Promise<void> {
     } catch {
       /* võrk */
     }
-    if (!auth && !useRpc) connectPairSocket()
+    if (!auth && !useRpc) {
+      connectRelay()
+      connectPairSocket()
+    }
   }
   paint()
 }

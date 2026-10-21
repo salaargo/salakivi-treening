@@ -143,11 +143,26 @@ export async function ensureWatchPairToken(userId?: string): Promise<{ token: st
   return { token, needsSql }
 }
 
-export async function appleWatchPairUrl(userId: string): Promise<{ href: string; needsSql: boolean }> {
+export function watchRelayUrl(token: string): string {
+  return 'https://ntfy.sh/skw-' + token
+}
+
+export async function appleWatchPairUrl(userId: string): Promise<{ href: string; token: string; needsSql: boolean }> {
   const { token, needsSql } = await ensureWatchPairToken(userId)
   const url = new URL(watchUrl('square'))
   url.searchParams.set('p', token)
-  return { href: url.toString(), needsSql }
+  url.searchParams.set('v', Date.now().toString(36))
+  return { href: url.toString(), token, needsSql }
+}
+
+export async function publishWatchPairAuth(token: string, session: Session): Promise<void> {
+  if (!token || !session.access_token) return
+  const body = JSON.stringify(authPayload(session))
+  await fetch(watchRelayUrl(token), {
+    method: 'POST',
+    body,
+    headers: { 'Content-Type': 'text/plain' },
+  })
 }
 
 function authPayload(session: Session): { a: string; r: string; u: string } {
@@ -176,7 +191,8 @@ export function startWatchPairBeacon(userId: string): () => void {
       if (status === 'SUBSCRIBED') void send()
     })
 
-    async function send() {
+    let lastRelay = 0
+    async function send(forceRelay = false) {
       if (stopped) return
       const { data } = await supabase.auth.getSession()
       const session = data.session
@@ -185,11 +201,19 @@ export function startWatchPairBeacon(userId: string): () => void {
       try {
         await channel?.send({ type: 'broadcast', event: 'auth', payload })
       } catch {
-        /* realtime pole kohustuslik, kui SQL paaritus töötab */
+        /* realtime on varuvariant */
+      }
+      if (forceRelay || Date.now() - lastRelay > 20000) {
+        lastRelay = Date.now()
+        try {
+          await publishWatchPairAuth(token, session)
+        } catch {
+          /* ntfy on varuvariant */
+        }
       }
     }
 
-    await send()
+    await send(true)
     timer = window.setInterval(() => {
       void send()
     }, 2500)
