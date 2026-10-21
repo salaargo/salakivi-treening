@@ -243,3 +243,6 @@ on conflict (id) do update
   set
     state = excluded.state,
     updated_by = excluded.updated_by;
+
+-- Apple Watch lühike paarikood (kell ei suuda pikka JWT-linki avada)
+-- Täielik kood: supabase/migration_watch_pair.sql

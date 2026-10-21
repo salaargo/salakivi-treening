@@ -21,6 +21,7 @@ import { createMachine, withDefaultMachine } from '../exercises'
 import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
 import { watchUrl } from '../orientation'
 import { getSupabase } from '../lib/supabase'
+import { appleWatchPairUrl, WATCH_PAIR_SQL } from '../watchPair'
 import { saveDisplayName } from '../cloud/sync'
 import { AdminUsersPanel } from './AdminUsersPanel'
 
@@ -66,25 +67,22 @@ export function SettingsScreen({
   const phaseProgress = getPhaseProgress(state)
   const galaxyHref = watchUrl('round')
   const [appleHref, setAppleHref] = useState(() => watchUrl('square'))
+  const [appleNeedsSql, setAppleNeedsSql] = useState(false)
 
   useEffect(() => {
     if (!userId) {
       setAppleHref(watchUrl('square'))
+      setAppleNeedsSql(false)
       return
     }
     void (async () => {
       try {
-        const supabase = getSupabase()
-        const refreshed = await supabase.auth.refreshSession()
-        const session = refreshed.data.session ?? (await supabase.auth.getSession()).data.session
-        if (!session?.access_token || !session.user?.id) return
-        const url = new URL(watchUrl('square'))
-        url.searchParams.set('u', session.user.id)
-        url.searchParams.set('a', session.access_token)
-        if (session.refresh_token) url.searchParams.set('r', session.refresh_token)
-        setAppleHref(url.toString())
+        const next = await appleWatchPairUrl(userId)
+        setAppleHref(next.href)
+        setAppleNeedsSql(next.needsSql)
       } catch {
         setAppleHref(watchUrl('square'))
+        setAppleNeedsSql(true)
       }
     })()
   }, [userId])
@@ -850,10 +848,16 @@ export function SettingsScreen({
       <section className="settings-block">
         <h3>Nutikell</h3>
         <p className="muted small">
-          Galaxy Watch: ümar vaade kella brauseris. Apple Watchil ei saa e-posti trükkida — ole
-          telefonis sisse logitud, vajuta Kopeeri Apple link, saada see sõnumiga kellale ja ava.
-          Link logib kella ise sisse. Telefonis vali harjutus ja pink.
+          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: ole telefonis sisse logitud, vajuta
+          Kopeeri Apple link (lühike, lõpus ?p=…) ja saada see sõnumiga kellale. Pikka
+          sisselogimislinki kell ei suuda avada.
         </p>
+        {appleNeedsSql && (
+          <p className="muted small">
+            Ühekordselt: kopeeri SQL, ava Supabase → SQL Editor → Run, siis kopeeri Apple link
+            uuesti. Ilma selleta töötab kell ainult siis, kui treeningäpp on telefonis lahti.
+          </p>
+        )}
         <div className="home-actions">
           <a className="btn btn-secondary full" href={galaxyHref}>
             Galaxy Watch (ümar)
@@ -877,12 +881,15 @@ export function SettingsScreen({
             type="button"
             className="btn btn-ghost full"
             onClick={() => {
+              const shortOk = appleHref.includes('p=')
               void navigator.clipboard?.writeText(appleHref).then(
                 () =>
                   window.alert(
-                    userId
-                      ? 'Apple Watchi link on kopeeritud. Saada see kellale ja ava — sisselogimist kellas ei ole vaja.'
-                      : 'Logi enne telefonis sisse, siis kopeeri Apple link uuesti.',
+                    !userId
+                      ? 'Logi enne telefonis sisse, siis kopeeri Apple link uuesti.'
+                      : shortOk
+                        ? 'Lühike Apple link on kopeeritud. Saada see sõnumiga kellale ja ava.'
+                        : 'Link on kopeeritud. Kui kell ei ava, kopeeri SQL ja käivita see Supabases.',
                   ),
                 () => window.alert(appleHref),
               )
@@ -890,6 +897,23 @@ export function SettingsScreen({
           >
             Kopeeri Apple link
           </button>
+          {appleNeedsSql && (
+            <button
+              type="button"
+              className="btn btn-ghost full"
+              onClick={() => {
+                void navigator.clipboard?.writeText(WATCH_PAIR_SQL).then(
+                  () =>
+                    window.alert(
+                      'SQL on kopeeritud. Ava supabase.com → SQL Editor → kleebi → Run. Siis kopeeri Apple link uuesti.',
+                    ),
+                  () => window.alert('Kopeeri fail supabase/migration_watch_pair.sql ja käivita SQL Editoris.'),
+                )
+              }}
+            >
+              Kopeeri Apple Watchi SQL
+            </button>
+          )}
         </div>
       </section>
 

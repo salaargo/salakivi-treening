@@ -19,7 +19,7 @@ Ava `http://localhost:43173`.
 - **Segamini (kaks harjutust):** paus ainult pärast teist harjutust. Taimer käib kella järgi (`endsAt`) ja taastub ekraani avamisel.
 - Järgmisel treeningul näitab valitud pink **eelmise korra viimast raskust**.
 - Telefonis püstivaade (ei reageeri põõramisele); arvutis laiem paigutus ja **Ajalugu** tabel (ainult enda logid).
-- **Nutikell:** Galaxy Watch `?kell=galaxy` kella brauseris. Apple Watch: Seaded → Kopeeri Apple link (oled telefonis sisse logitud) → ava kellas; kell logib ise sisse, trükkimist pole.
+- **Nutikell:** Galaxy Watch `?kell=galaxy` kella brauseris. Apple Watch: Seaded → Kopeeri Apple link (lühike `?p=` kood, oled telefonis sisse logitud) → saada sõnumiga kellale. Ühekordselt käivita `supabase/migration_watch_pair.sql`.
 - **Faasid** on vabalt muudetavad: Seaded → Faasid.
 - **Admin (Argo):** Seaded → kasutajate nimekiri ja näidiskava andmine.
 

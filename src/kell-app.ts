@@ -5,6 +5,7 @@ import type { LiveSession } from './live/sessionEngine'
 const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || '')
 const ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '')
 const AUTH_KEY = 'salakivi-kell-auth-v1'
+const PAIR_KEY = 'salakivi-kell-pair-v1'
 
 interface KellAuth {
   access_token: string
@@ -13,14 +14,48 @@ interface KellAuth {
   email: string
 }
 
-function authFromUrl(): KellAuth | null {
-  let params = new URLSearchParams(location.search)
+function searchParams(): URLSearchParams {
+  const params = new URLSearchParams(location.search)
   if (location.hash.length > 1) {
     const fromHash = new URLSearchParams(location.hash.replace(/^#/, ''))
     fromHash.forEach((value, key) => {
       if (!params.get(key)) params.set(key, value)
     })
   }
+  return params
+}
+
+function persistPair(code: string): void {
+  try {
+    localStorage.setItem(PAIR_KEY, code)
+  } catch {
+    /* ignore */
+  }
+  try {
+    history.replaceState(null, '', location.pathname + '?kell=apple&p=' + encodeURIComponent(code))
+  } catch {
+    /* ignore */
+  }
+}
+
+function pairFromUrl(): string {
+  const params = searchParams()
+  const fromQuery = params.get('p') || ''
+  if (fromQuery.length >= 6) {
+    persistPair(fromQuery)
+    return fromQuery
+  }
+  try {
+    const stored = localStorage.getItem(PAIR_KEY) || ''
+    if (stored.length >= 6) return stored
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
+
+function authFromUrl(): KellAuth | null {
+  const params = searchParams()
   const access = params.get('a')
   const userId = params.get('u')
   const refresh = params.get('r') || ''
@@ -36,18 +71,8 @@ function authFromUrl(): KellAuth | null {
   } catch {
     /* ignore */
   }
-  try {
-    history.replaceState(null, '', location.pathname + '?kell=apple')
-  } catch {
-    /* ignore */
-  }
   return next
 }
-
-let auth: KellAuth | null = authFromUrl() ?? readAuth()
-let snap: LiveSnapshot | null = null
-let errorText = ''
-let tick = 0
 
 function readAuth(): KellAuth | null {
   try {
@@ -71,6 +96,16 @@ function saveAuth(next: KellAuth | null): void {
   }
 }
 
+let pairCode = pairFromUrl()
+let auth: KellAuth | null = authFromUrl() ?? readAuth()
+let useRpc = false
+let snap: LiveSnapshot | null = null
+let errorText = ''
+let tick = 0
+let ws: WebSocket | null = null
+let wsRef = 1
+let hbTimer = 0
+
 function esc(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
     if (ch === '&') return '&amp;'
@@ -93,13 +128,12 @@ function formatClock(totalSec: number): string {
 }
 
 function headers(token?: string): Record<string, string> {
-  const out: Record<string, string> = {
+  return {
     apikey: ANON_KEY,
     Authorization: 'Bearer ' + (token || ANON_KEY),
     'Content-Type': 'application/json',
     Accept: 'application/json',
   }
-  return out
 }
 
 async function api(path: string, init: RequestInit, token?: string): Promise<Response> {
@@ -137,8 +171,132 @@ function liveFromState(state: unknown): LiveSnapshot | null {
   return found && found.v === 1 ? found : null
 }
 
+function takeAuthFromUnknown(value: unknown): void {
+  if (!value || typeof value !== 'object') return
+  const rec = value as { a?: string; u?: string; r?: string; payload?: unknown }
+  if (rec.a && rec.u) {
+    saveAuth({
+      access_token: rec.a,
+      refresh_token: rec.r || '',
+      user_id: rec.u,
+      email: '',
+    })
+    return
+  }
+  if (rec.payload) takeAuthFromUnknown(rec.payload)
+}
+
+function connectPairSocket(): void {
+  if (!pairCode || !SUPABASE_URL || !ANON_KEY || auth || useRpc) return
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return
+  const host = SUPABASE_URL.replace(/^https:/, 'wss:')
+  const url = host + '/realtime/v1/websocket?apikey=' + encodeURIComponent(ANON_KEY) + '&vsn=1.0.0'
+  try {
+    ws = new WebSocket(url)
+  } catch {
+    return
+  }
+  ws.onopen = function () {
+    if (!ws || !pairCode) return
+    ws.send(
+      JSON.stringify({
+        topic: 'realtime:skw-' + pairCode,
+        event: 'phx_join',
+        payload: {
+          config: {
+            broadcast: { ack: false, self: true },
+            presence: { key: '', enabled: false },
+            postgres_changes: [],
+            private: false,
+          },
+          access_token: ANON_KEY,
+        },
+        ref: String(++wsRef),
+        join_ref: '1',
+      }),
+    )
+    if (hbTimer) window.clearInterval(hbTimer)
+    hbTimer = window.setInterval(function () {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++wsRef) }))
+    }, 25000)
+  }
+  ws.onmessage = function (ev) {
+    try {
+      const raw = typeof ev.data === 'string' ? ev.data : ''
+      const msg = JSON.parse(raw) as {
+        event?: string
+        payload?: { event?: string; payload?: unknown }
+      }
+      const payload = msg.payload
+      if (msg.event === 'broadcast' && payload) {
+        if (payload.event === 'auth') takeAuthFromUnknown(payload.payload)
+        else takeAuthFromUnknown(payload)
+        if (auth) {
+          errorText = ''
+          void pullSnap().then(paint)
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  ws.onclose = function () {
+    ws = null
+    if (hbTimer) window.clearInterval(hbTimer)
+    window.setTimeout(connectPairSocket, 2500)
+  }
+  ws.onerror = function () {
+    try {
+      ws?.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function pullViaRpc(): Promise<boolean> {
+  if (!pairCode) return false
+  const res = await api('/rest/v1/rpc/watch_pull', {
+    method: 'POST',
+    body: JSON.stringify({ pair: pairCode }),
+  })
+  if (res.status === 404) return false
+  if (!res.ok) return false
+  const data = (await res.json()) as { ok?: boolean; snap?: LiveSnapshot } | LiveSnapshot | null
+  if (!data) return true
+  if ('ok' in data) {
+    if (data.ok === false) {
+      errorText = 'See Apple link ei kehti. Kopeeri telefonis Seadetest uus lühike link.'
+      return true
+    }
+    useRpc = true
+    errorText = ''
+    if (data.snap && data.snap.v === 1) snap = data.snap
+    return true
+  }
+  if ((data as LiveSnapshot).v === 1) {
+    useRpc = true
+    errorText = ''
+    snap = data as LiveSnapshot
+  }
+  return true
+}
+
 async function pullSnap(): Promise<void> {
-  if (!auth) return
+  if (pairCode && !useRpc) {
+    const ok = await pullViaRpc()
+    if (ok && useRpc) return
+    if (ok && errorText) return
+  }
+  if (useRpc && pairCode) {
+    await pullViaRpc()
+    return
+  }
+  if (!auth) {
+    connectPairSocket()
+    return
+  }
   const uid = auth.user_id
   const token = auth.access_token
   let next: LiveSnapshot | null = null
@@ -172,6 +330,13 @@ async function pullSnap(): Promise<void> {
 }
 
 async function pushSnap(next: LiveSnapshot): Promise<void> {
+  if (useRpc && pairCode) {
+    await api('/rest/v1/rpc/watch_push', {
+      method: 'POST',
+      body: JSON.stringify({ pair: pairCode, next }),
+    })
+    return
+  }
   if (!auth) return
   const body = {
     user_id: auth.user_id,
@@ -212,6 +377,10 @@ async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot'
   await pushSnap(published)
 }
 
+function linked(): boolean {
+  return Boolean(pairCode || auth || useRpc)
+}
+
 function paint(): void {
   const root = document.getElementById('app')
   if (!root) return
@@ -223,11 +392,11 @@ function paint(): void {
     return
   }
 
-  if (!auth) {
+  if (!linked()) {
     root.innerHTML =
       '<p class="title">Salakivi kell</p>' +
-      '<p class="sub">Kellas ei saa e-posti trükkida.</p>' +
-      '<p class="sub">Telefonis: Seaded → Kopeeri Apple link (oled juba sisse logitud) → saada sõnumiga kellale ja ava uuesti.</p>' +
+      '<p class="sub">Ava telefonis treeningäpp → Seaded → Kopeeri Apple link ja saada see sõnumiga kellale.</p>' +
+      '<p class="sub">Link peab olema lühike (lõpus ?p=…). Pikka linki kell ei suuda avada.</p>' +
       (errorText ? '<p class="err">' + esc(errorText) + '</p>' : '')
     return
   }
@@ -280,8 +449,9 @@ function paint(): void {
   if (flow === 'sauna') parts.push('<p class="title">Sauna!</p><p class="sub">Uus trenn algab telefonist</p>')
   if (!snap || flow === 'idle') {
     parts.push('<p class="title">Salakivi kell</p>')
-    parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis.</p>')
+    parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis ja hoia treeningäpp lahti.</p>')
   }
+  if (errorText) parts.push('<p class="err">' + esc(errorText) + '</p>')
 
   root.innerHTML = parts.join('')
 
@@ -311,12 +481,13 @@ function paint(): void {
 }
 
 async function loop(): Promise<void> {
-  if (auth) {
+  if (linked()) {
     try {
       await pullSnap()
     } catch {
       /* võrk */
     }
+    if (!auth && !useRpc) connectPairSocket()
   }
   paint()
 }

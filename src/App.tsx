@@ -32,6 +32,7 @@ import {
   subscribeSnapshot,
   type LiveSnapshot,
 } from './live/remote'
+import { startWatchPairBeacon } from './watchPair'
 
 export default function App() {
   const cloud = isCloudEnabled()
@@ -184,6 +185,11 @@ export default function App() {
   useEffect(() => {
     void connectLiveRemote(userId)
   }, [userId])
+
+  useEffect(() => {
+    if (!cloud || !userId || watchMode) return
+    return startWatchPairBeacon(userId)
+  }, [cloud, userId, watchMode])
 
   useEffect(() => {
     if (!watchMode) return
