@@ -6,8 +6,8 @@ export type AfterSetAction =
   | { kind: 'continue'; nextSlot: number; rest: boolean }
 
 /**
- * Kaks harjutust segamini: paus pärast teisena SOORITATUD harjutust
- * (mitte pärast teiseks valitud harjutust). Järjekord pinkidel ei loe.
+ * Kaks harjutust: hoia ringi alguse järjekord (kes oli esimene, on ka järgmise ringi esimene).
+ * Paus pärast teist sooritust. Järjekorda saab muuta Starti oodates teist harjutust valides.
  */
 export function afterSetAction(input: {
   selectedLength: number
@@ -18,7 +18,6 @@ export function afterSetAction(input: {
   thisDone: boolean
   otherStillOpen: boolean
   allDone: boolean
-  firstStillOpen: boolean
 }): AfterSetAction {
   if (input.allDone) return { kind: 'sauna' }
 
@@ -27,11 +26,7 @@ export function afterSetAction(input: {
     if (input.thisCompleted > input.otherCompleted) {
       return { kind: 'continue', nextSlot: input.otherSlot, rest: false }
     }
-    return {
-      kind: 'continue',
-      nextSlot: input.firstStillOpen ? 0 : input.otherSlot,
-      rest: true,
-    }
+    return { kind: 'continue', nextSlot: input.otherSlot, rest: true }
   }
 
   if (input.thisDone) return { kind: 'pick' }

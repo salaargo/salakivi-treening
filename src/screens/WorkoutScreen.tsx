@@ -260,13 +260,25 @@ export function WorkoutScreen({
       sessionRevRef.current = Math.max(s.rev ?? 0, sessionRevRef.current)
       if (epoch != null && epoch > liveEpochRef.current) liveEpochRef.current = epoch
       commitLog(logToUse)
-      setFlow(s.flow === 'idle' ? 'pick' : s.flow)
-      setSelected(s.selected)
-      setActiveSlot(s.activeSlot)
+      let nextFlow: Flow = s.flow === 'idle' ? 'pick' : s.flow
+      let nextRestEnds = s.restEndsAt ?? null
+      let nextSelected = s.selected
+      let nextSlot = s.activeSlot
+      if (nextFlow === 'resting' && (!nextRestEnds || nextRestEnds <= Date.now())) {
+        nextFlow = s.pendingAfterRest === 'pick' ? 'pick' : 'ready'
+        nextRestEnds = null
+        if (nextFlow === 'pick') {
+          nextSelected = []
+          nextSlot = 0
+        }
+      }
+      setFlow(nextFlow)
+      setSelected(nextSelected)
+      setActiveSlot(nextSlot)
       setRestSeconds(s.restSeconds)
       setRestHint(s.restHint)
       setRestNext(s.restNext)
-      setRestEndsAt(s.restEndsAt ?? null)
+      setRestEndsAt(nextRestEnds)
       pendingAfterRest.current = s.pendingAfterRest
       sessionStartedAt.current = s.sessionStartedAt
       workMsAcc.current = s.workMs
@@ -516,11 +528,15 @@ export function WorkoutScreen({
         activeSlot,
         pairChoices: selected.map((index, slot) => {
           const ex = liveExercises[index]
-          const left =
-            ex && log
-              ? findExerciseLog(log, ex.id)?.sets.filter((s) => !s.completed).length ?? 0
-              : 0
-          return { slot, name: ex?.name ?? `Harjutus ${slot + 1}`, left }
+          const entry = ex && log ? findExerciseLog(log, ex.id) : undefined
+          const left = entry?.sets.filter((s) => !s.completed).length ?? 0
+          const nextSet = entry?.sets.find((s) => !s.completed)
+          return {
+            slot,
+            name: ex?.name ?? `Harjutus ${slot + 1}`,
+            left,
+            weightKg: nextSet?.weightKg,
+          }
         }),
       })
     }
@@ -816,8 +832,6 @@ export function WorkoutScreen({
     const otherCompleted = otherExercise
       ? findExerciseLog(next, otherExercise.id)?.sets.filter((s) => s.completed).length ?? 0
       : 0
-    const firstEx = liveExercises[selected[0]]
-    const firstStillOpen = firstEx ? !isExerciseDone(next, firstEx.id) : false
     const action = afterSetAction({
       selectedLength: selected.length,
       activeSlot,
@@ -827,7 +841,6 @@ export function WorkoutScreen({
       thisDone,
       otherStillOpen,
       allDone: allExercisesDone(next, liveExercises),
-      firstStillOpen,
     })
 
     if (action.kind === 'sauna') {
@@ -1299,10 +1312,10 @@ export function WorkoutScreen({
         </div>
       )}
 
-      {flow === 'resting' && (
+      {flow === 'resting' && restEndsAt != null && restEndsAt > Date.now() && (
         <RestTimer
           layout="banner"
-          endsAt={restEndsAt ?? Date.now() + restSeconds * 1000}
+          endsAt={restEndsAt}
           durationSeconds={Math.max(1, restSeconds)}
           remainingHint={restHint}
           nextHint={restNext}

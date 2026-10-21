@@ -39,19 +39,21 @@ export function RestTimer({
   vibrate: allowVibrate = false,
 }: RestTimerProps) {
   const finishedRef = useRef(false)
+  const completedEndsAtRef = useRef<number | null>(null)
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
 
   const [left, setLeft] = useState(() => remainingRestSeconds(endsAt))
 
   useEffect(() => {
-    finishedRef.current = false
+    if (completedEndsAtRef.current !== endsAt) finishedRef.current = false
 
     const tick = () => {
       const next = remainingRestSeconds(endsAt)
       setLeft(next)
       if (next <= 0 && !finishedRef.current) {
         finishedRef.current = true
+        completedEndsAtRef.current = endsAt
         if (allowVibrate) vibrate()
         onCompleteRef.current()
       }

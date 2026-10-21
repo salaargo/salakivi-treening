@@ -195,8 +195,6 @@ function applyTehtud(session: LiveSession, now: number): LiveSession {
   const otherCompleted = otherExercise
     ? findExerciseLog(nextLog, otherExercise.id)?.sets.filter((s) => s.completed).length ?? 0
     : 0
-  const firstEx = session.exercises[session.selected[0]]
-  const firstStillOpen = firstEx ? !isExerciseDone(nextLog, firstEx.id) : false
   const action = afterSetAction({
     selectedLength: session.selected.length,
     activeSlot: session.activeSlot,
@@ -206,7 +204,6 @@ function applyTehtud(session: LiveSession, now: number): LiveSession {
     thisDone,
     otherStillOpen,
     allDone: allExercisesDone(nextLog, session.exercises),
-    firstStillOpen,
   })
 
   if (action.kind === 'sauna') {
@@ -310,7 +307,7 @@ export function sessionToSnapshot(session: LiveSession): {
   remainingSets?: number
   weightKg?: number
   activeSlot?: number
-  pairChoices?: { slot: number; name: string; left: number }[]
+  pairChoices?: { slot: number; name: string; left: number; weightKg?: number }[]
   session: LiveSession
 } {
   const currentExIndex = session.selected[session.activeSlot] ?? session.selected[0]
@@ -346,10 +343,15 @@ export function sessionToSnapshot(session: LiveSession): {
     activeSlot: session.activeSlot,
     pairChoices: session.selected.map((index, slot) => {
       const ex = session.exercises[index]
-      const left = ex
-        ? findExerciseLog(session.log, ex.id)?.sets.filter((s) => !s.completed).length ?? 0
-        : 0
-      return { slot, name: ex?.name ?? `Harjutus ${slot + 1}`, left }
+      const entry = ex ? findExerciseLog(session.log, ex.id) : undefined
+      const left = entry?.sets.filter((s) => !s.completed).length ?? 0
+      const nextSet = entry?.sets.find((s) => !s.completed)
+      return {
+        slot,
+        name: ex?.name ?? `Harjutus ${slot + 1}`,
+        left,
+        weightKg: nextSet?.weightKg,
+      }
     }),
     session,
   }

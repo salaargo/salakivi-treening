@@ -393,15 +393,21 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
   )
 }
 
-function pairFromSnap(current: LiveSnapshot): { slot: number; name: string; left: number }[] {
+function pairFromSnap(
+  current: LiveSnapshot,
+): { slot: number; name: string; left: number; weightKg?: number }[] {
   if (current.pairChoices && current.pairChoices.length >= 2) return current.pairChoices
   if (current.exerciseName && current.otherName) {
     return [
-      { slot: 0, name: current.exerciseName, left: current.remainingSets || 0 },
+      { slot: 0, name: current.exerciseName, left: current.remainingSets || 0, weightKg: current.weightKg },
       { slot: 1, name: current.otherName, left: current.remainingSets || 0 },
     ]
   }
   return []
+}
+
+function pairLabel(name: string, weightKg?: number): string {
+  return weightKg != null && weightKg > 0 ? name + ' · ' + weightKg + ' kg' : name
 }
 
 async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): Promise<void> {
@@ -461,7 +467,7 @@ function paint(): void {
           '" data-slot="' +
           item.slot +
           '"><span>' +
-          esc(item.name) +
+          esc(pairLabel(item.name, item.weightKg)) +
           '</span><strong>' +
           item.left +
           (item.left === 1 ? ' seeria' : ' seeriat') +
@@ -471,7 +477,7 @@ function paint(): void {
     if (pair.length < 2 && snap.exerciseName) {
       parts.push(
         '<p class="wait">' +
-          esc(snap.exerciseName) +
+          esc(pairLabel(snap.exerciseName, snap.weightKg)) +
           (snap.remainingSets != null ? ' · ' + snap.remainingSets + ' seeriat' : '') +
           '</p>',
       )

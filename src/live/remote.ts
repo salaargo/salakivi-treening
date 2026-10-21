@@ -34,7 +34,7 @@ export interface LiveSnapshot {
   weightKg?: number
   machineName?: string
   activeSlot?: number
-  pairChoices?: { slot: number; name: string; left: number }[]
+  pairChoices?: { slot: number; name: string; left: number; weightKg?: number }[]
   session?: import('./sessionEngine').LiveSession
 }
 
@@ -269,6 +269,37 @@ async function persistCloud(snap: LiveSnapshot): Promise<void> {
   }
 }
 
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let pendingPersist: LiveSnapshot | null = null
+
+function schedulePersist(snap: LiveSnapshot): void {
+  pendingPersist = snap
+  if (persistTimer != null) return
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    const next = pendingPersist
+    pendingPersist = null
+    if (next) void persistCloud(next)
+  }, 1600)
+}
+
+function flushPersist(): void {
+  if (persistTimer != null) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  const next = pendingPersist
+  pendingPersist = null
+  if (next) void persistCloud(next)
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushPersist)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPersist()
+  })
+}
+
 export async function pullRemoteSnapshot(userId?: string | null): Promise<LiveSnapshot | null> {
   const uid = userId ?? currentUserId
   if (!isCloudEnabled() || !uid) return readStoredSnapshot()
@@ -369,7 +400,7 @@ export function publishSnapshot(snap: LiveSnapshot): void {
     event: 'live',
     payload: { kind: 'snap', snap: stamped },
   })
-  void persistCloud(stamped)
+  schedulePersist(stamped)
 }
 
 export function sendCommand(

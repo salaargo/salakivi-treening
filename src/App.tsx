@@ -34,6 +34,31 @@ import {
 } from './live/remote'
 import { startWatchPairBeacon } from './watchPair'
 
+const SCREEN_KEY = 'salakivi-screen-v1'
+
+function loadPersistedScreen(): Screen {
+  try {
+    const raw = localStorage.getItem(SCREEN_KEY)
+    if (!raw) return { name: 'home' }
+    const parsed = JSON.parse(raw) as Screen
+    if (parsed?.name === 'workout' && typeof parsed.dateKey === 'string' && parsed.dateKey) {
+      return { name: 'workout', dateKey: parsed.dateKey }
+    }
+    if (parsed?.name === 'week' || parsed?.name === 'train-choice') return parsed
+    return { name: 'home' }
+  } catch {
+    return { name: 'home' }
+  }
+}
+
+function persistScreen(next: Screen): void {
+  try {
+    localStorage.setItem(SCREEN_KEY, JSON.stringify(next))
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function App() {
   const cloud = isCloudEnabled()
   const watchMode = isWatchMode()
@@ -42,7 +67,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!cloud)
   const [session, setSession] = useState<Session | null>(null)
   const [state, setState] = useState<AppState>(() => loadState())
-  const [screen, setScreen] = useState<Screen>({ name: 'home' })
+  const [screen, setScreen] = useState<Screen>(() => loadPersistedScreen())
   const [weekOffset, setWeekOffset] = useState(0)
   const [bootError, setBootError] = useState<string | null>(null)
   const [cloudStatus, setCloudStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
@@ -157,6 +182,10 @@ export default function App() {
   }, [state, userId, cloud])
 
   useEffect(() => {
+    persistScreen(screen)
+  }, [screen])
+
+  useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === 'hidden') flushCloudSave()
     }
@@ -232,7 +261,7 @@ export default function App() {
       } catch {
         setDisplayName(meta)
       }
-      setScreen({ name: 'home' })
+      setScreen(loadPersistedScreen())
     }
   }, [watchMode])
 

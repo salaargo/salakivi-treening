@@ -18,7 +18,11 @@ function formatClock(totalSec: number): string {
   return `${mm}:${ss}`
 }
 
-function pairFromSnap(snap: LiveSnapshot): { slot: number; name: string; left: number }[] {
+function pairLabel(name: string, weightKg?: number): string {
+  return weightKg != null && weightKg > 0 ? `${name} · ${weightKg} kg` : name
+}
+
+function pairFromSnap(snap: LiveSnapshot): { slot: number; name: string; left: number; weightKg?: number }[] {
   if (snap.pairChoices && snap.pairChoices.length >= 2) return snap.pairChoices
   const fromParts = snap.remainingParts?.filter((part) => part.left >= 0) ?? []
   if (fromParts.length >= 2) {
@@ -82,7 +86,7 @@ function WatchPairPicker({
               dispatchWatchCommand('select-slot', { slot: part.slot })
             }}
           >
-            <span className="watch-remain-name">{part.name}</span>
+            <span className="watch-remain-name">{pairLabel(part.name, part.weightKg)}</span>
             <strong>
               {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
             </strong>
@@ -101,7 +105,7 @@ function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
     <div className="watch-remain-list">
       {parts.map((part) => (
         <p key={part.name} className="watch-remain-row">
-          <span className="watch-remain-name">{part.name}</span>
+          <span className="watch-remain-name">{pairLabel(part.name, snap.weightKg)}</span>
           <strong>
             {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
           </strong>
