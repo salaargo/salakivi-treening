@@ -96,6 +96,7 @@ function saveAuth(next: KellAuth | null): void {
   }
 }
 
+let pinDraft = ''
 let pairCode = pairFromUrl()
 let auth: KellAuth | null = authFromUrl() ?? readAuth()
 let useRpc = false
@@ -393,21 +394,45 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
   )
 }
 
+function weightFromSession(current: LiveSnapshot, slot: number): number | undefined {
+  const session = current.session
+  const index = session && session.selected ? session.selected[slot] : undefined
+  if (index == null || !session) return undefined
+  const ex = session.exercises[index]
+  if (!ex) return undefined
+  const entry = session.log.exercises.find(function (row) {
+    return row.exerciseId === ex.id
+  })
+  const next = entry && entry.sets.find(function (set) {
+    return !set.completed
+  })
+  return next && next.weightKg > 0 ? next.weightKg : undefined
+}
+
 function pairFromSnap(
   current: LiveSnapshot,
 ): { slot: number; name: string; left: number; weightKg?: number }[] {
-  if (current.pairChoices && current.pairChoices.length >= 2) return current.pairChoices
-  if (current.exerciseName && current.otherName) {
-    return [
+  let pair: { slot: number; name: string; left: number; weightKg?: number }[] = []
+  if (current.pairChoices && current.pairChoices.length >= 2) pair = current.pairChoices
+  else if (current.exerciseName && current.otherName) {
+    pair = [
       { slot: 0, name: current.exerciseName, left: current.remainingSets || 0, weightKg: current.weightKg },
       { slot: 1, name: current.otherName, left: current.remainingSets || 0 },
     ]
   }
-  return []
+  return pair.map(function (part) {
+    const kg = part.weightKg && part.weightKg > 0 ? part.weightKg : weightFromSession(current, part.slot)
+    return { slot: part.slot, name: part.name, left: part.left, weightKg: kg }
+  })
 }
 
-function pairLabel(name: string, weightKg?: number): string {
-  return weightKg != null && weightKg > 0 ? name + ' · ' + weightKg + ' kg' : name
+function acceptPin(code: string): void {
+  if (!/^\d{6}$/.test(code)) return
+  pairCode = code
+  persistPair(code)
+  pinDraft = ''
+  connectRelay()
+  void loop()
 }
 
 async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): Promise<void> {
@@ -438,11 +463,35 @@ function paint(): void {
   }
 
   if (!linked()) {
+    const shown = (pinDraft + '------').slice(0, 6).split('').join(' ')
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '']
+    const pad = keys
+      .map(function (key) {
+        if (!key) return '<span class="pad-spacer"></span>'
+        return '<button type="button" class="pad" data-key="' + key + '">' + key + '</button>'
+      })
+      .join('')
     root.innerHTML =
       '<p class="title">Salakivi kell</p>' +
-      '<p class="sub">Ava telefonis treeningäpp → Seaded → Kopeeri Apple link ja saada see sõnumiga kellale.</p>' +
-      '<p class="sub">Link peab olema lühike (lõpus ?p=…). Pikka linki kell ei suuda avada.</p>' +
+      '<p class="sub">Telefonis Seaded: kuuekohaline kood.</p>' +
+      '<p class="pin">' +
+      esc(shown) +
+      '</p>' +
+      '<div class="pad-grid">' +
+      pad +
+      '</div>' +
       (errorText ? '<p class="err">' + esc(errorText) + '</p>' : '')
+    const btns = root.querySelectorAll('[data-key]')
+    for (let i = 0; i < btns.length; i++) {
+      const btn = btns[i] as HTMLButtonElement
+      btn.onclick = function () {
+        const key = btn.getAttribute('data-key') || ''
+        if (key === 'C') pinDraft = pinDraft.slice(0, -1)
+        else if (pinDraft.length < 6) pinDraft += key
+        if (pinDraft.length === 6) acceptPin(pinDraft)
+        else paint()
+      }
+    }
     return
   }
 
@@ -466,18 +515,21 @@ function paint(): void {
           (on ? ' on' : '') +
           '" data-slot="' +
           item.slot +
-          '"><span>' +
-          esc(pairLabel(item.name, item.weightKg)) +
-          '</span><strong>' +
+          '"><span class="nm">' +
+          esc(item.name) +
+          '</span><span class="meta">' +
+          (item.weightKg != null && item.weightKg > 0 ? '<b>' + item.weightKg + ' kg</b>' : '<span></span>') +
+          '<strong>' +
           item.left +
           (item.left === 1 ? ' seeria' : ' seeriat') +
-          '</strong></button>',
+          '</strong></span></button>',
       )
     })
     if (pair.length < 2 && snap.exerciseName) {
       parts.push(
         '<p class="wait">' +
-          esc(pairLabel(snap.exerciseName, snap.weightKg)) +
+          esc(snap.exerciseName) +
+          (snap.weightKg != null && snap.weightKg > 0 ? ' · ' + snap.weightKg + ' kg' : '') +
           (snap.remainingSets != null ? ' · ' + snap.remainingSets + ' seeriat' : '') +
           '</p>',
       )

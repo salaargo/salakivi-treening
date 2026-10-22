@@ -1237,6 +1237,14 @@ select:focus {
   font-size: 1rem;
 }
 
+.apple-pin {
+  margin: 0.35rem 0 0;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+
 .section-head {
   display: flex;
   justify-content: space-between;
@@ -1474,9 +1482,9 @@ html.is-watch .watch-bezel {
 
 .watch-remain-row {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.35rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.08rem;
   margin: 0;
   font-weight: 800;
   font-size: clamp(0.9rem, 4.6vw, 1.15rem);
@@ -1499,9 +1507,9 @@ html.is-watch .watch-bezel {
 
 .watch-pair-btn {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.35rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.08rem;
   width: 100%;
   margin: 0;
   padding: 0.35rem 0.45rem;
@@ -1513,6 +1521,20 @@ html.is-watch .watch-bezel {
   font-weight: 800;
   font-size: clamp(0.85rem, 4.2vw, 1.05rem);
   text-align: left;
+}
+
+.watch-pair-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.watch-pair-kg {
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 .watch-pair-btn.is-next {

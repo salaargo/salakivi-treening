@@ -3,7 +3,6 @@ import { getSupabase, isCloudEnabled } from './lib/supabase'
 import { getLatestLiveSnapshot } from './live/remote'
 import { watchUrl } from './orientation'
 
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const LOCAL_PAIR_KEY = 'salakivi-watch-pair-v1'
 
 export const WATCH_PAIR_SQL = `-- Apple Watchi lühike paarikood. Supabase → SQL Editor → Run (üks kord).
@@ -88,19 +87,23 @@ grant execute on function public.watch_pull(text) to anon, authenticated;
 `
 
 export function newWatchPairToken(): string {
-  const bytes = new Uint8Array(8)
+  const bytes = new Uint8Array(6)
   crypto.getRandomValues(bytes)
   let out = ''
   for (let i = 0; i < bytes.length; i++) {
-    out += ALPHABET[bytes[i]! % ALPHABET.length]
+    out += String(bytes[i]! % 10)
   }
   return out
+}
+
+function isWatchPin(value: string): boolean {
+  return /^\d{6}$/.test(value)
 }
 
 function readLocalToken(): string {
   try {
     const existing = localStorage.getItem(LOCAL_PAIR_KEY)
-    if (existing && existing.length >= 6) return existing
+    if (existing && isWatchPin(existing)) return existing
   } catch {
     /* ignore */
   }
@@ -124,7 +127,7 @@ export async function ensureWatchPairToken(userId?: string): Promise<{ token: st
       const { data, error } = await supabase.from('watch_pair').select('token').eq('user_id', userId).maybeSingle()
       if (error) {
         needsSql = true
-      } else if (typeof data?.token === 'string' && data.token.length >= 6) {
+      } else if (typeof data?.token === 'string' && isWatchPin(data.token)) {
         token = data.token
       } else {
         if (!token) token = newWatchPairToken()

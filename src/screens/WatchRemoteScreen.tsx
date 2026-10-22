@@ -18,23 +18,36 @@ function formatClock(totalSec: number): string {
   return `${mm}:${ss}`
 }
 
-function pairLabel(name: string, weightKg?: number): string {
-  return weightKg != null && weightKg > 0 ? `${name} · ${weightKg} kg` : name
+function weightFromSession(snap: LiveSnapshot, slot: number): number | undefined {
+  const session = snap.session
+  const index = session?.selected[slot]
+  if (index == null || !session) return undefined
+  const ex = session.exercises[index]
+  if (!ex) return undefined
+  const next = session.log.exercises
+    .find((entry) => entry.exerciseId === ex.id)
+    ?.sets.find((set) => !set.completed)
+  return typeof next?.weightKg === 'number' && next.weightKg > 0 ? next.weightKg : undefined
 }
 
 function pairFromSnap(snap: LiveSnapshot): { slot: number; name: string; left: number; weightKg?: number }[] {
-  if (snap.pairChoices && snap.pairChoices.length >= 2) return snap.pairChoices
-  const fromParts = snap.remainingParts?.filter((part) => part.left >= 0) ?? []
-  if (fromParts.length >= 2) {
-    return fromParts.slice(0, 2).map((part, slot) => ({ slot, name: part.name, left: part.left }))
+  let pair: { slot: number; name: string; left: number; weightKg?: number }[] = []
+  if (snap.pairChoices && snap.pairChoices.length >= 2) pair = snap.pairChoices
+  else {
+    const fromParts = snap.remainingParts?.filter((part) => part.left >= 0) ?? []
+    if (fromParts.length >= 2) {
+      pair = fromParts.slice(0, 2).map((part, slot) => ({ slot, name: part.name, left: part.left }))
+    } else if (snap.exerciseName && snap.otherName) {
+      pair = [
+        { slot: 0, name: snap.exerciseName, left: snap.remainingSets ?? 0, weightKg: snap.weightKg },
+        { slot: 1, name: snap.otherName, left: snap.remainingSets ?? 0 },
+      ]
+    }
   }
-  if (snap.exerciseName && snap.otherName) {
-    return [
-      { slot: 0, name: snap.exerciseName, left: snap.remainingSets ?? 0 },
-      { slot: 1, name: snap.otherName, left: snap.remainingSets ?? 0 },
-    ]
-  }
-  return []
+  return pair.map((part) => ({
+    ...part,
+    weightKg: part.weightKg && part.weightKg > 0 ? part.weightKg : weightFromSession(snap, part.slot),
+  }))
 }
 
 function remainingFromSnap(snap: LiveSnapshot): { name: string; left: number }[] {
@@ -86,10 +99,17 @@ function WatchPairPicker({
               dispatchWatchCommand('select-slot', { slot: part.slot })
             }}
           >
-            <span className="watch-remain-name">{pairLabel(part.name, part.weightKg)}</span>
-            <strong>
-              {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
-            </strong>
+            <span className="watch-remain-name">{part.name}</span>
+            <span className="watch-pair-meta">
+              {part.weightKg != null && part.weightKg > 0 ? (
+                <b className="watch-pair-kg">{part.weightKg} kg</b>
+              ) : (
+                <span />
+              )}
+              <strong>
+                {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
+              </strong>
+            </span>
           </button>
         )
       })}
@@ -105,10 +125,17 @@ function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
     <div className="watch-remain-list">
       {parts.map((part) => (
         <p key={part.name} className="watch-remain-row">
-          <span className="watch-remain-name">{pairLabel(part.name, snap.weightKg)}</span>
-          <strong>
-            {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
-          </strong>
+          <span className="watch-remain-name">{part.name}</span>
+          <span className="watch-pair-meta">
+            {snap.weightKg != null && snap.weightKg > 0 ? (
+              <b className="watch-pair-kg">{snap.weightKg} kg</b>
+            ) : (
+              <span />
+            )}
+            <strong>
+              {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
+            </strong>
+          </span>
         </p>
       ))}
     </div>

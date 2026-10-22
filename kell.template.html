@@ -76,10 +76,11 @@
       }
       .pair {
         display: flex;
-        justify-content: space-between;
-        gap: 8px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
         width: 100%;
-        padding: 7px 8px;
+        padding: 6px 8px;
         border: 0;
         border-radius: 8px;
         background: #22281c;
@@ -88,9 +89,42 @@
         min-height: 34px;
         text-align: left;
       }
+      .pair .nm {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pair .meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
       .pair.on {
         background: #f5e06a;
         color: #2a2408;
+      }
+      .pin {
+        margin: 0;
+        font-size: 22px;
+        letter-spacing: 0.2em;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      .pad-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 6px;
+      }
+      .pad {
+        min-height: 36px;
+        font-size: 18px;
+        background: #2c3424;
+        color: #fff;
+      }
+      .pad-spacer {
+        min-height: 36px;
       }
       input {
         width: 100%;

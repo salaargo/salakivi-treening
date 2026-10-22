@@ -67,18 +67,22 @@ export function SettingsScreen({
   const phaseProgress = getPhaseProgress(state)
   const galaxyHref = watchUrl('round')
   const [appleHref, setAppleHref] = useState(() => watchUrl('square'))
+  const [applePin, setApplePin] = useState('')
 
   useEffect(() => {
     if (!userId) {
       setAppleHref(watchUrl('square'))
+      setApplePin('')
       return
     }
     void (async () => {
       try {
         const next = await appleWatchPairUrl(userId)
         setAppleHref(next.href)
+        setApplePin(next.token)
       } catch {
         setAppleHref(watchUrl('square'))
+        setApplePin('')
       }
     })()
   }, [userId])
@@ -95,11 +99,16 @@ export function SettingsScreen({
     try {
       const next = await appleWatchPairUrl(userId)
       setAppleHref(next.href)
+      setApplePin(next.token)
       const supabase = getSupabase()
       const session = (await supabase.auth.getSession()).data.session
       if (session) await publishWatchPairAuth(next.token, session)
       await navigator.clipboard?.writeText(next.href)
-      window.alert('Lühike Apple link on kopeeritud. Saada see sõnumiga kellale ja ava. Hoia treeningäpp telefonis lahti.')
+      window.alert(
+        'Apple Watchi kood: ' +
+          next.token +
+          '. Ava kellas Salakivi kell ja toksa kood, või saada lühike link. Hoia treeningäpp telefonis lahti.',
+      )
     } catch {
       window.alert(appleHref)
     }
@@ -862,10 +871,15 @@ export function SettingsScreen({
       <section className="settings-block">
         <h3>Nutikell</h3>
         <p className="muted small">
-          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: ole telefonis sisse logitud, vajuta
-          Kopeeri Apple link, saada lühike link (`?p=`) kellale ja ava. Hoia treeningäpp telefonis
-          lahti, kuni kell näitab trenni.
+          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: ava kellas Salakivi kell ja sisesta
+          kuuekohaline kood. Linki pole vaja, kui kood on käes. Hoia treeningäpp telefonis lahti.
         </p>
+        {applePin && (
+          <>
+            <p className="muted small">Apple Watchi kood</p>
+            <p className="apple-pin">{applePin}</p>
+          </>
+        )}
         <div className="home-actions">
           <a className="btn btn-secondary full" href={galaxyHref}>
             Galaxy Watch (ümar)
