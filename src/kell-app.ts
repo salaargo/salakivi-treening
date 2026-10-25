@@ -490,7 +490,7 @@ function acceptPin(code: string): void {
   if (!/^\d{6}$/.test(code)) return
   pairCode = code
   persistPair(code)
-  pinDraft = ''
+  pinDraft = code
   pairWaitFrom = Date.now()
   errorText = ''
   updatePinFace()
@@ -517,8 +517,16 @@ function onAppPointer(ev: Event): void {
   if (keyEl && !auth && !useRpc) {
     if (!takeTap(ev)) return
     const key = keyEl.getAttribute('data-key') || ''
-    if (key === 'C') pinDraft = pinDraft.slice(0, -1)
-    else if (pinDraft.length < 6 && /^\d$/.test(key)) pinDraft += key
+    if (key === 'C') {
+      pinDraft = pinDraft.slice(0, -1)
+      if (pinDraft.length < 6) {
+        pairCode = ''
+        pairWaitFrom = 0
+        errorText = ''
+        const sub = document.getElementById('kell-sub')
+        if (sub) sub.textContent = 'Toksa telefonis nähtav 6-kohaline kood.'
+      }
+    } else if (pinDraft.length < 6 && /^\d$/.test(key)) pinDraft += key
     updatePinFace()
     if (pinDraft.length === 6) acceptPin(pinDraft)
     return
