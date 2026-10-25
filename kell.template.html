@@ -54,11 +54,15 @@
       }
       button {
         width: 100%;
-        min-height: 40px;
+        min-height: 44px;
         border: 0;
         border-radius: 10px;
         font: 800 20px/1 -apple-system, system-ui, sans-serif;
         padding: 8px;
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: rgba(255, 255, 255, 0.18);
       }
       .start {
         background: #4ade80;
@@ -115,16 +119,21 @@
       .pad-grid {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr;
-        gap: 6px;
+        gap: 8px;
+        margin-top: 4px;
       }
       .pad {
-        min-height: 36px;
-        font-size: 18px;
-        background: #2c3424;
+        min-height: 44px;
+        font-size: 22px;
+        background: #3a4630;
         color: #fff;
       }
+      .pad:active {
+        background: #f5e06a;
+        color: #2a2408;
+      }
       .pad-spacer {
-        min-height: 36px;
+        min-height: 44px;
       }
       input {
         width: 100%;
@@ -145,7 +154,7 @@
   <body>
     <div id="app">
       <p class="title">Salakivi kell</p>
-      <p class="sub">Ava telefonis Seaded → Kopeeri Apple link (lühike ?p=) ja ava see kellas.</p>
+      <p class="sub">Toksa telefonis nähtav 6-kohaline kood.</p>
     </div>
     <script src="kell.js?v=__KELL_V__"></script>
   </body>

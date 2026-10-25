@@ -871,8 +871,8 @@ export function SettingsScreen({
       <section className="settings-block">
         <h3>Nutikell</h3>
         <p className="muted small">
-          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: ava kellas Salakivi kell ja sisesta
-          kuuekohaline kood. Linki pole vaja, kui kood on käes. Hoia treeningäpp telefonis lahti.
+          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: toksa kellas sama kuuekohaline
+          kood, mis on siin ja avalehel. Hoia treeningäpp telefonis lahti.
         </p>
         {applePin && (
           <>

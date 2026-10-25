@@ -6,6 +6,7 @@ interface HomeScreenProps {
   phaseName: string
   phaseHint: string
   userName?: string
+  watchPin?: string
   compact?: boolean
 }
 
@@ -17,6 +18,7 @@ export function HomeScreen({
   phaseName,
   phaseHint,
   userName,
+  watchPin,
   compact = false,
 }: HomeScreenProps) {
   return (
@@ -33,6 +35,12 @@ export function HomeScreen({
           {planName}: <strong>{phaseName}</strong>
         </p>
         <p className="muted">{phaseHint}</p>
+        {watchPin && (
+          <p className="home-watch-pin">
+            Apple Watch kood
+            <strong>{watchPin}</strong>
+          </p>
+        )}
       </header>
 
       <div className="home-actions">

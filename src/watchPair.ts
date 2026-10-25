@@ -206,7 +206,7 @@ export function startWatchPairBeacon(userId: string): () => void {
       } catch {
         /* realtime on varuvariant */
       }
-      if (forceRelay || Date.now() - lastRelay > 20000) {
+      if (forceRelay || Date.now() - lastRelay > 4000) {
         lastRelay = Date.now()
         try {
           await publishWatchPairAuth(token, session)

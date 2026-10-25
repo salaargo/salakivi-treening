@@ -136,6 +136,22 @@ select:focus {
   font-size: 1.05rem;
 }
 
+.home-watch-pin {
+  margin: 0.85rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.home-watch-pin strong {
+  color: var(--text);
+  font-size: 1.7rem;
+  letter-spacing: 0.22em;
+  font-variant-numeric: tabular-nums;
+}
+
 .muted {
   color: var(--muted);
   margin: 0;
@@ -1691,6 +1707,10 @@ html.is-watch .watch-face-square .btn-tehtud-lg,
 .home-screen.is-compact .home-hello {
   margin-bottom: 0.55rem;
   font-size: 1.05rem;
+}
+
+.home-screen.is-compact .home-watch-pin strong {
+  font-size: 1.35rem;
 }
 
 .rotate-lock-title {

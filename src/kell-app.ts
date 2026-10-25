@@ -102,11 +102,12 @@ let auth: KellAuth | null = authFromUrl() ?? readAuth()
 let useRpc = false
 let snap: LiveSnapshot | null = null
 let errorText = ''
-let tick = 0
 let ws: WebSocket | null = null
 let wsRef = 1
 let hbTimer = 0
-const waitedFrom = Date.now()
+let lastTapAt = 0
+let appBound = false
+let pairWaitFrom = pairCode && !auth ? Date.now() : 0
 
 function esc(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
@@ -294,6 +295,64 @@ function connectRelay(): void {
   })
 }
 
+function ingestNtfyBody(text: string): void {
+  const lines = text.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+    try {
+      const ev = JSON.parse(line) as { message?: string }
+      if (!ev.message) continue
+      takeAuthFromUnknown(JSON.parse(ev.message))
+      if (auth) errorText = ''
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function pullViaRelayFetch(): Promise<void> {
+  if (!pairCode || auth) return
+  try {
+    const polled = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?poll=1&since=all')
+    if (polled.ok) ingestNtfyBody(await polled.text())
+    if (auth) return
+  } catch {
+    /* WatchOS poll */
+  }
+  const ac = new AbortController()
+  const timer = window.setTimeout(function () {
+    ac.abort()
+  }, 2800)
+  try {
+    const res = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?since=all', { signal: ac.signal })
+    if (!res.ok || !res.body) return
+    const reader = res.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const chunk = await reader.read()
+      buf += dec.decode(chunk.value || new Uint8Array(), { stream: !chunk.done })
+      const lines = buf.split('\n')
+      buf = lines.pop() || ''
+      ingestNtfyBody(lines.join('\n'))
+      if (auth) {
+        try {
+          reader.cancel()
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      if (chunk.done) break
+    }
+  } catch {
+    /* WatchOS fetch */
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 async function pullViaRpc(): Promise<boolean> {
   if (!pairCode) return false
   const res = await api('/rest/v1/rpc/watch_pull', {
@@ -306,8 +365,7 @@ async function pullViaRpc(): Promise<boolean> {
   if (!data) return true
   if ('ok' in data) {
     if (data.ok === false) {
-      errorText = 'See Apple link ei kehti. Kopeeri telefonis Seadetest uus lühike link.'
-      return true
+      return false
     }
     useRpc = true
     errorText = ''
@@ -323,11 +381,13 @@ async function pullViaRpc(): Promise<boolean> {
 }
 
 async function pullSnap(): Promise<void> {
-  if (!auth && pairCode) connectRelay()
+  if (!auth && pairCode) {
+    connectRelay()
+    await pullViaRelayFetch()
+  }
   if (pairCode && !useRpc) {
     const ok = await pullViaRpc()
     if (ok && useRpc) return
-    if (ok && errorText) return
   }
   if (useRpc && pairCode) {
     await pullViaRpc()
@@ -431,8 +491,122 @@ function acceptPin(code: string): void {
   pairCode = code
   persistPair(code)
   pinDraft = ''
+  pairWaitFrom = Date.now()
+  errorText = ''
+  updatePinFace()
+  const sub = document.getElementById('kell-sub')
+  if (sub) sub.textContent = 'Ühendame telefoniga…'
   connectRelay()
+  void pullViaRelayFetch()
   void loop()
+}
+
+function takeTap(ev: Event): boolean {
+  ev.preventDefault()
+  ev.stopPropagation()
+  const now = Date.now()
+  if (now - lastTapAt < 220) return false
+  lastTapAt = now
+  return true
+}
+
+function onAppPointer(ev: Event): void {
+  const target = ev.target as HTMLElement | null
+  if (!target || !target.closest) return
+  const keyEl = target.closest('[data-key]') as HTMLElement | null
+  if (keyEl && !auth && !useRpc) {
+    if (!takeTap(ev)) return
+    const key = keyEl.getAttribute('data-key') || ''
+    if (key === 'C') pinDraft = pinDraft.slice(0, -1)
+    else if (pinDraft.length < 6 && /^\d$/.test(key)) pinDraft += key
+    updatePinFace()
+    if (pinDraft.length === 6) acceptPin(pinDraft)
+    return
+  }
+  const startEl = target.closest('#kell-start') as HTMLElement | null
+  if (startEl) {
+    if (!takeTap(ev)) return
+    void (async function () {
+      const flow = snap ? snap.flow : 'idle'
+      if (flow === 'resting') await runCommand('skip-rest')
+      await runCommand('start')
+    })()
+    return
+  }
+  const tehtudEl = target.closest('#kell-tehtud') as HTMLElement | null
+  if (tehtudEl) {
+    if (!takeTap(ev)) return
+    void runCommand('tehtud')
+    return
+  }
+  const slotEl = target.closest('[data-slot]') as HTMLElement | null
+  if (slotEl) {
+    if (!takeTap(ev)) return
+    const slot = Number(slotEl.getAttribute('data-slot'))
+    if (slot === 0 || slot === 1) void runCommand('select-slot', slot)
+  }
+}
+
+function bindApp(): void {
+  if (appBound) return
+  const root = document.getElementById('app')
+  if (!root) return
+  appBound = true
+  root.addEventListener('pointerdown', onAppPointer, { passive: false })
+  root.addEventListener('touchend', onAppPointer, { passive: false })
+  root.addEventListener('click', onAppPointer, { passive: false })
+}
+
+function pinFace(): string {
+  const chars: string[] = []
+  for (let i = 0; i < 6; i++) chars.push(pinDraft[i] || '·')
+  return chars.join(' ')
+}
+
+function updatePinFace(): void {
+  const pinEl = document.getElementById('kell-pin')
+  if (pinEl) pinEl.textContent = pinFace()
+}
+
+function needsPinPad(): boolean {
+  return !auth && !useRpc
+}
+
+function paintPinPad(root: HTMLElement): void {
+  const connecting = Boolean(pairCode)
+  const subText = connecting
+    ? errorText || 'Ühendame telefoniga…'
+    : 'Toksa telefonis nähtav 6-kohaline kood.'
+  if (root.querySelector('.pad-grid')) {
+    updatePinFace()
+    const sub = document.getElementById('kell-sub')
+    if (sub) sub.textContent = subText
+    const err = document.getElementById('kell-err')
+    if (err) err.textContent = errorText
+    return
+  }
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '']
+  const pad = keys
+    .map(function (key) {
+      if (!key) return '<span class="pad-spacer"></span>'
+      const label = key === 'C' ? '←' : key
+      return '<button type="button" class="pad" data-key="' + key + '">' + label + '</button>'
+    })
+    .join('')
+  root.innerHTML =
+    '<p class="title">Salakivi kell</p>' +
+    '<p class="sub" id="kell-sub">' +
+    esc(subText) +
+    '</p>' +
+    '<p class="pin" id="kell-pin">' +
+    esc(pinFace()) +
+    '</p>' +
+    '<div class="pad-grid">' +
+    pad +
+    '</div>' +
+    '<p class="err" id="kell-err">' +
+    esc(errorText) +
+    '</p>'
 }
 
 async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): Promise<void> {
@@ -447,14 +621,10 @@ async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot'
   await pushSnap(published)
 }
 
-function linked(): boolean {
-  return Boolean(pairCode || auth || useRpc)
-}
-
 function paint(): void {
   const root = document.getElementById('app')
   if (!root) return
-  tick += 1
+  bindApp()
 
   if (!SUPABASE_URL || !ANON_KEY) {
     root.innerHTML =
@@ -462,36 +632,8 @@ function paint(): void {
     return
   }
 
-  if (!linked()) {
-    const shown = (pinDraft + '------').slice(0, 6).split('').join(' ')
-    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '']
-    const pad = keys
-      .map(function (key) {
-        if (!key) return '<span class="pad-spacer"></span>'
-        return '<button type="button" class="pad" data-key="' + key + '">' + key + '</button>'
-      })
-      .join('')
-    root.innerHTML =
-      '<p class="title">Salakivi kell</p>' +
-      '<p class="sub">Telefonis Seaded: kuuekohaline kood.</p>' +
-      '<p class="pin">' +
-      esc(shown) +
-      '</p>' +
-      '<div class="pad-grid">' +
-      pad +
-      '</div>' +
-      (errorText ? '<p class="err">' + esc(errorText) + '</p>' : '')
-    const btns = root.querySelectorAll('[data-key]')
-    for (let i = 0; i < btns.length; i++) {
-      const btn = btns[i] as HTMLButtonElement
-      btn.onclick = function () {
-        const key = btn.getAttribute('data-key') || ''
-        if (key === 'C') pinDraft = pinDraft.slice(0, -1)
-        else if (pinDraft.length < 6) pinDraft += key
-        if (pinDraft.length === 6) acceptPin(pinDraft)
-        else paint()
-      }
-    }
+  if (needsPinPad()) {
+    paintPinPad(root)
     return
   }
 
@@ -546,58 +688,59 @@ function paint(): void {
   if (flow === 'sauna') parts.push('<p class="title">Sauna!</p><p class="sub">Uus trenn algab telefonist</p>')
   if (!snap || flow === 'idle') {
     parts.push('<p class="title">Salakivi kell</p>')
-    if (Date.now() - waitedFrom > 8000 && !auth && !useRpc) {
-      parts.push(
-        '<p class="sub">Hoia treeningäpp telefonis lahti ja alusta trenn. Kui see ei muutu, kopeeri telefonis uus Apple link.</p>',
-      )
-    } else {
-      parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis.</p>')
-    }
+    parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis.</p>')
   }
   if (errorText) parts.push('<p class="err">' + esc(errorText) + '</p>')
 
   root.innerHTML = parts.join('')
-
-  const startBtn = document.getElementById('kell-start')
-  if (startBtn) {
-    startBtn.onclick = function () {
-      void (async function () {
-        if (flow === 'resting') await runCommand('skip-rest')
-        await runCommand('start')
-      })()
-    }
-  }
-  const tehtudBtn = document.getElementById('kell-tehtud')
-  if (tehtudBtn) {
-    tehtudBtn.onclick = function () {
-      void runCommand('tehtud')
-    }
-  }
-  const pairBtns = root.querySelectorAll('[data-slot]')
-  for (let i = 0; i < pairBtns.length; i++) {
-    const btn = pairBtns[i] as HTMLButtonElement
-    btn.onclick = function () {
-      const slot = Number(btn.getAttribute('data-slot'))
-      if (slot === 0 || slot === 1) void runCommand('select-slot', slot)
-    }
-  }
 }
 
 async function loop(): Promise<void> {
-  if (linked()) {
-    try {
-      await pullSnap()
-    } catch {
-      /* võrk */
+  if (needsPinPad()) {
+    if (pairCode) {
+      try {
+        await pullSnap()
+      } catch {
+        /* võrk */
+      }
+      if (!needsPinPad()) {
+        paint()
+        return
+      }
+      if (pairWaitFrom && Date.now() - pairWaitFrom > 18000) {
+        errorText = 'Ei saanud ühendust. Toksa kood uuesti.'
+        pairCode = ''
+        pinDraft = ''
+        pairWaitFrom = 0
+        try {
+          localStorage.removeItem(PAIR_KEY)
+        } catch {
+          /* ignore */
+        }
+      }
+      const root = document.getElementById('app')
+      if (root) paintPinPad(root)
     }
-    if (!auth && !useRpc) {
-      connectRelay()
-      connectPairSocket()
-    }
+    return
+  }
+  try {
+    await pullSnap()
+  } catch {
+    /* võrk */
+  }
+  if (!auth && !useRpc) {
+    connectRelay()
+    connectPairSocket()
+    void pullViaRelayFetch()
   }
   paint()
 }
 
+bindApp()
+if (pairCode && !auth) {
+  connectRelay()
+  void pullViaRelayFetch()
+}
 paint()
 void loop()
 window.setInterval(function () {

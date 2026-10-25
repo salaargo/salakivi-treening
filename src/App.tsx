@@ -32,7 +32,7 @@ import {
   subscribeSnapshot,
   type LiveSnapshot,
 } from './live/remote'
-import { startWatchPairBeacon } from './watchPair'
+import { ensureWatchPairToken, startWatchPairBeacon } from './watchPair'
 
 const SCREEN_KEY = 'salakivi-screen-v1'
 
@@ -87,6 +87,7 @@ export default function App() {
   userIdRef.current = userId
   const userEmail = session?.user.email ?? ''
   const [displayName, setDisplayName] = useState('')
+  const [watchPin, setWatchPin] = useState('')
 
   useEffect(() => {
     if (!cloud) return
@@ -217,6 +218,7 @@ export default function App() {
 
   useEffect(() => {
     if (!cloud || !userId || watchMode) return
+    void ensureWatchPairToken(userId).then((row) => setWatchPin(row.token))
     return startWatchPairBeacon(userId)
   }, [cloud, userId, watchMode])
 
@@ -387,6 +389,7 @@ export default function App() {
               : 'Lisa kavad ja pane need nädalapäevadele.'
           }
           userName={cloud ? displayName || undefined : undefined}
+          watchPin={cloud ? watchPin || undefined : undefined}
           onTrain={() => setScreen({ name: 'train-choice' })}
           onSettings={() => setScreen({ name: 'settings' })}
           onStats={viewport.isDesktop ? () => setScreen({ name: 'stats' }) : undefined}
