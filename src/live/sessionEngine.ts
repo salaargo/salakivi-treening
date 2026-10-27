@@ -357,6 +357,63 @@ export function sessionToSnapshot(session: LiveSession): {
   }
 }
 
+export type RankedSnapshot = {
+  v?: number
+  flow?: LiveSession['flow']
+  dateKey?: string
+  epoch?: number
+  seq?: number
+  at?: number
+  session?: LiveSession
+}
+
+function snapshotRev(snap: RankedSnapshot | null | undefined): number {
+  return snap?.session?.rev ?? 0
+}
+
+function snapshotSets(snap: RankedSnapshot | null | undefined): number {
+  return completedSetCount(snap?.session?.log)
+}
+
+/**
+ * Uus treening (kõrgem epoch) võidab alati, isegi kui seq algab 1-st.
+ * Sama treeningu sees võidab kella/telefoni käskude järjekord (rev),
+ * mitte seadme oma loendur ega värskem timestamp vanal seisul.
+ */
+export function snapshotShouldReplace(
+  incoming: RankedSnapshot | null | undefined,
+  current: RankedSnapshot | null | undefined,
+): boolean {
+  if (!incoming || incoming.v !== 1) return false
+  if (!current) return true
+
+  const inSets = snapshotSets(incoming)
+  const curSets = snapshotSets(current)
+  if (incoming.flow === 'idle' && curSets > inSets) return false
+
+  const inEpoch = incoming.epoch ?? 0
+  const curEpoch = current.epoch ?? 0
+  if (inEpoch !== curEpoch) {
+    if (incoming.dateKey === current.dateKey && inSets < curSets) return false
+    return inEpoch > curEpoch
+  }
+
+  if (inSets !== curSets) return inSets > curSets
+
+  const inRev = snapshotRev(incoming)
+  const curRev = snapshotRev(current)
+  if (inRev !== curRev) return inRev > curRev
+
+  const dt = (incoming.at ?? 0) - (current.at ?? 0)
+  if (dt > 80) return true
+  if (dt < -80) return false
+
+  const inSeq = incoming.seq ?? 0
+  const curSeq = current.seq ?? 0
+  if (inSeq !== curSeq) return inSeq > curSeq
+  return dt >= 0
+}
+
 export function isPhoneLikelyAsleep(snap: { at: number } | null, now = Date.now()): boolean {
   if (!snap) return true
   return now - snap.at > 2200

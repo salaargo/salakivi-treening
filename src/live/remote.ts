@@ -1,7 +1,12 @@
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { isWatchMode } from '../orientation'
-import { applySessionCommand, completedSetCount, sessionToSnapshot } from './sessionEngine'
+import {
+  applySessionCommand,
+  completedSetCount,
+  sessionToSnapshot,
+  snapshotShouldReplace,
+} from './sessionEngine'
 
 export type RemoteCommandType =
   | 'start'
@@ -64,52 +69,7 @@ let tableMissing = false
 let lastSnap: LiveSnapshot | null = null
 let publishSeq = 0
 
-function snapshotRev(snap: LiveSnapshot | null | undefined): number {
-  return snap?.session?.rev ?? 0
-}
-
-function snapshotSets(snap: LiveSnapshot | null | undefined): number {
-  return completedSetCount(snap?.session?.log)
-}
-
-/**
- * Uus treening (kõrgem epoch) võidab alati, isegi kui seq algab 1-st.
- * Sama treeningu sees võidab kella/telefoni käskude järjekord (rev),
- * mitte seadme oma loendur ega värskem timestamp vanal seisul.
- */
-export function snapshotShouldReplace(
-  incoming: LiveSnapshot,
-  current: LiveSnapshot | null,
-): boolean {
-  if (!incoming || incoming.v !== 1) return false
-  if (!current) return true
-
-  const inSets = snapshotSets(incoming)
-  const curSets = snapshotSets(current)
-  if (incoming.flow === 'idle' && curSets > inSets) return false
-
-  const inEpoch = incoming.epoch ?? 0
-  const curEpoch = current.epoch ?? 0
-  if (inEpoch !== curEpoch) {
-    if (incoming.dateKey === current.dateKey && inSets < curSets) return false
-    return inEpoch > curEpoch
-  }
-
-  if (inSets !== curSets) return inSets > curSets
-
-  const inRev = snapshotRev(incoming)
-  const curRev = snapshotRev(current)
-  if (inRev !== curRev) return inRev > curRev
-
-  const dt = incoming.at - current.at
-  if (dt > 80) return true
-  if (dt < -80) return false
-
-  const inSeq = incoming.seq ?? 0
-  const curSeq = current.seq ?? 0
-  if (inSeq !== curSeq) return inSeq > curSeq
-  return dt >= 0
-}
+export { snapshotShouldReplace }
 
 /** Kas pilve/kella seanss on telefoni praegusest treeningust ees. */
 export function snapshotIsAhead(

@@ -1,4 +1,4 @@
-import { applySessionCommand, sessionToSnapshot } from './live/sessionEngine'
+import { applySessionCommand, sessionToSnapshot, snapshotShouldReplace } from './live/sessionEngine'
 import type { LiveSnapshot } from './live/remote'
 import type { LiveSession } from './live/sessionEngine'
 
@@ -104,10 +104,16 @@ let snap: LiveSnapshot | null = null
 let errorText = ''
 let ws: WebSocket | null = null
 let wsRef = 1
-let hbTimer = 0
+let pairHbTimer = 0
+let liveHbTimer = 0
 let lastTapAt = 0
 let appBound = false
 let pairWaitFrom = pairCode && !auth ? Date.now() : 0
+let localHoldUntil = 0
+let lastPaintKey = ''
+let liveWs: WebSocket | null = null
+let liveJoined = false
+let pendingLive: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapshot }[] = []
 
 function esc(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
@@ -190,10 +196,36 @@ function takeAuthFromUnknown(value: unknown): void {
       user_id: rec.u,
       email: '',
     })
+    try {
+      relayEs?.close()
+    } catch {
+      /* ignore */
+    }
+    try {
+      ws?.close()
+    } catch {
+      /* ignore */
+    }
+    connectLiveSocket()
   }
   const maybeSnap = rec.snap as LiveSnapshot | undefined
-  if (maybeSnap && maybeSnap.v === 1) snap = maybeSnap
+  if (maybeSnap && maybeSnap.v === 1) adoptSnap(maybeSnap)
   if (rec.payload) takeAuthFromUnknown(rec.payload)
+}
+
+function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
+  if (!incoming || incoming.v !== 1) return false
+  if (Date.now() < localHoldUntil && snap) {
+    const sameWork =
+      (incoming.session?.rev ?? 0) === (snap.session?.rev ?? 0) &&
+      incoming.flow !== 'sauna' &&
+      snap.flow !== 'idle'
+    if (sameWork && !snapshotShouldReplace(incoming, snap)) return false
+    if (sameWork && (incoming.session?.rev ?? 0) <= (snap.session?.rev ?? 0)) return false
+  }
+  if (snap && !snapshotShouldReplace(incoming, snap)) return false
+  snap = incoming
+  return true
 }
 
 function connectPairSocket(): void {
@@ -225,8 +257,8 @@ function connectPairSocket(): void {
         join_ref: '1',
       }),
     )
-    if (hbTimer) window.clearInterval(hbTimer)
-    hbTimer = window.setInterval(function () {
+    if (pairHbTimer) window.clearInterval(pairHbTimer)
+    pairHbTimer = window.setInterval(function () {
       if (!ws || ws.readyState !== WebSocket.OPEN) return
       ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++wsRef) }))
     }, 25000)
@@ -253,12 +285,118 @@ function connectPairSocket(): void {
   }
   ws.onclose = function () {
     ws = null
-    if (hbTimer) window.clearInterval(hbTimer)
+    if (pairHbTimer) window.clearInterval(pairHbTimer)
     window.setTimeout(connectPairSocket, 2500)
   }
   ws.onerror = function () {
     try {
       ws?.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function liveTopic(): string {
+  return auth ? 'realtime:salakivi-live-' + auth.user_id : ''
+}
+
+function flushLive(): void {
+  if (!liveWs || liveWs.readyState !== WebSocket.OPEN || !auth || !liveJoined) return
+  while (pendingLive.length) {
+    const env = pendingLive.shift()
+    if (!env) break
+    liveWs.send(
+      JSON.stringify({
+        topic: liveTopic(),
+        event: 'broadcast',
+        payload: {
+          type: 'broadcast',
+          event: 'live',
+          payload: env,
+        },
+        ref: String(++wsRef),
+      }),
+    )
+  }
+}
+
+function sendLive(env: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapshot }): void {
+  pendingLive.push(env)
+  if (pendingLive.length > 8) pendingLive.shift()
+  connectLiveSocket()
+  flushLive()
+}
+
+function connectLiveSocket(): void {
+  if (!auth || !SUPABASE_URL || !ANON_KEY) return
+  if (liveWs && (liveWs.readyState === WebSocket.CONNECTING || liveWs.readyState === WebSocket.OPEN)) return
+  const host = SUPABASE_URL.replace(/^https:/, 'wss:')
+  const url = host + '/realtime/v1/websocket?apikey=' + encodeURIComponent(ANON_KEY) + '&vsn=1.0.0'
+  try {
+    liveWs = new WebSocket(url)
+  } catch {
+    return
+  }
+  liveJoined = false
+  liveWs.onopen = function () {
+    if (!liveWs || !auth) return
+    liveWs.send(
+      JSON.stringify({
+        topic: liveTopic(),
+        event: 'phx_join',
+        payload: {
+          config: {
+            broadcast: { ack: false, self: false },
+            presence: { key: auth.user_id, enabled: true },
+            postgres_changes: [],
+            private: false,
+          },
+          access_token: auth.access_token,
+        },
+        ref: String(++wsRef),
+        join_ref: 'live',
+      }),
+    )
+    if (liveHbTimer) window.clearInterval(liveHbTimer)
+    liveHbTimer = window.setInterval(function () {
+      if (!liveWs || liveWs.readyState !== WebSocket.OPEN) return
+      liveWs.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++wsRef) }))
+    }, 25000)
+    window.setTimeout(function () {
+      liveJoined = true
+      flushLive()
+    }, 500)
+  }
+  liveWs.onmessage = function (ev) {
+    try {
+      const raw = typeof ev.data === 'string' ? ev.data : ''
+      const msg = JSON.parse(raw) as {
+        event?: string
+        payload?: { event?: string; status?: string; payload?: { kind?: string; snap?: LiveSnapshot } }
+      }
+      const payload = msg.payload
+      if (msg.event === 'phx_reply' && payload && payload.status !== 'error') {
+        liveJoined = true
+        flushLive()
+      }
+      if (msg.event === 'broadcast' && payload && payload.event === 'live') {
+        const env = payload.payload
+        if (env && env.kind === 'snap' && env.snap && adoptSnap(env.snap)) paint()
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  liveWs.onclose = function () {
+    liveWs = null
+    liveJoined = false
+    if (liveHbTimer) window.clearInterval(liveHbTimer)
+    window.setTimeout(connectLiveSocket, 2500)
+  }
+  liveWs.onerror = function () {
+    try {
+      liveWs?.close()
     } catch {
       /* ignore */
     }
@@ -369,13 +507,13 @@ async function pullViaRpc(): Promise<boolean> {
     }
     useRpc = true
     errorText = ''
-    if (data.snap && data.snap.v === 1) snap = data.snap
+    if (data.snap && data.snap.v === 1) adoptSnap(data.snap)
     return true
   }
   if ((data as LiveSnapshot).v === 1) {
     useRpc = true
     errorText = ''
-    snap = data as LiveSnapshot
+    adoptSnap(data as LiveSnapshot)
   }
   return true
 }
@@ -397,6 +535,7 @@ async function pullSnap(): Promise<void> {
     connectPairSocket()
     return
   }
+  connectLiveSocket()
   const uid = auth.user_id
   const token = auth.access_token
   let next: LiveSnapshot | null = null
@@ -423,10 +562,10 @@ async function pullSnap(): Promise<void> {
   if (stateRes.ok) {
     const rows = (await stateRes.json()) as { state?: unknown }[]
     const fromState = liveFromState(rows[0]?.state)
-    if (fromState && (!next || (fromState.at || 0) >= (next.at || 0))) next = fromState
+    if (fromState && (!next || snapshotShouldReplace(fromState, next))) next = fromState
   }
 
-  if (next) snap = next
+  if (next) adoptSnap(next)
 }
 
 async function pushSnap(next: LiveSnapshot): Promise<void> {
@@ -505,7 +644,7 @@ function takeTap(ev: Event): boolean {
   ev.preventDefault()
   ev.stopPropagation()
   const now = Date.now()
-  if (now - lastTapAt < 220) return false
+  if (now - lastTapAt < 280) return false
   lastTapAt = now
   return true
 }
@@ -534,6 +673,7 @@ function onAppPointer(ev: Event): void {
   const startEl = target.closest('#kell-start') as HTMLElement | null
   if (startEl) {
     if (!takeTap(ev)) return
+    startEl.textContent = '…'
     void (async function () {
       const flow = snap ? snap.flow : 'idle'
       if (flow === 'resting') await runCommand('skip-rest')
@@ -544,6 +684,7 @@ function onAppPointer(ev: Event): void {
   const tehtudEl = target.closest('#kell-tehtud') as HTMLElement | null
   if (tehtudEl) {
     if (!takeTap(ev)) return
+    tehtudEl.textContent = '…'
     void runCommand('tehtud')
     return
   }
@@ -560,9 +701,9 @@ function bindApp(): void {
   const root = document.getElementById('app')
   if (!root) return
   appBound = true
-  root.addEventListener('pointerdown', onAppPointer, { passive: false })
-  root.addEventListener('touchend', onAppPointer, { passive: false })
-  root.addEventListener('click', onAppPointer, { passive: false })
+  root.addEventListener('touchstart', onAppPointer, { passive: false, capture: true })
+  root.addEventListener('pointerdown', onAppPointer, { passive: false, capture: true })
+  root.addEventListener('click', onAppPointer, { passive: false, capture: true })
 }
 
 function pinFace(): string {
@@ -617,16 +758,53 @@ function paintPinPad(root: HTMLElement): void {
     '</p>'
 }
 
+function newCmd(
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot',
+  extra?: { rev?: number; slot?: number },
+): { id: string; type: string; at: number; rev?: number; slot?: number } {
+  return {
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    type,
+    at: Date.now(),
+    rev: extra?.rev,
+    slot: extra?.slot,
+  }
+}
+
 async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): Promise<void> {
-  if (!snap || !snap.session || snap.flow === 'idle' || snap.flow === 'sauna') return
-  const nextSession: LiveSession = applySessionCommand(snap.session, type, Date.now(), { slot: slot })
-  if (nextSession === snap.session) return
-  const published = sessionToSnapshot(nextSession) as LiveSnapshot
-  published.epoch = snap.epoch || Date.now()
-  published.seq = (snap.seq || 0) + 1
-  snap = published
-  paint()
-  await pushSnap(published)
+  if (!snap || snap.flow === 'idle' || snap.flow === 'sauna' || snap.flow === 'pick') return
+  localHoldUntil = Date.now() + 5000
+  connectLiveSocket()
+  if (snap.session) {
+    const nextSession: LiveSession = applySessionCommand(snap.session, type, Date.now(), { slot: slot })
+    if (nextSession !== snap.session) {
+      const published = sessionToSnapshot(nextSession) as LiveSnapshot
+      published.epoch = snap.epoch || Date.now()
+      published.seq = (snap.seq || 0) + 1
+      snap = published
+      lastPaintKey = ''
+      paint()
+      sendLive({ kind: 'cmd', cmd: newCmd(type, { rev: nextSession.rev, slot }) })
+      sendLive({ kind: 'snap', snap: published })
+      await pushSnap(published)
+      return
+    }
+  }
+  sendLive({ kind: 'cmd', cmd: newCmd(type, { slot }) })
+  if (type === 'start' && (snap.flow === 'ready' || snap.flow === 'resting')) {
+    snap = { ...snap, flow: 'active', at: Date.now(), seq: (snap.seq || 0) + 1 }
+    lastPaintKey = ''
+    paint()
+    await pushSnap(snap)
+  } else if (type === 'tehtud' && snap.flow === 'active') {
+    snap = { ...snap, flow: 'resting', at: Date.now(), seq: (snap.seq || 0) + 1 }
+    lastPaintKey = ''
+    paint()
+    await pushSnap(snap)
+  } else {
+    lastPaintKey = ''
+    paint()
+  }
 }
 
 function paint(): void {
@@ -651,10 +829,40 @@ function paint(): void {
   const canStart = flow === 'ready' || (flow === 'resting' && left <= 0)
   const showTehtud = flow === 'active'
   const pair = snap ? pairFromSnap(snap) : []
+  const paintKey = [
+    flow,
+    snap && snap.exerciseName,
+    snap && snap.otherName,
+    snap && String(snap.activeSlot),
+    snap && String(snap.remainingSets),
+    snap && String(snap.weightKg),
+    canStart ? 's' : '',
+    showTehtud ? 't' : '',
+    resting ? 'r' : '',
+    errorText,
+    pair
+      .map(function (p) {
+        return p.slot + p.name + p.left + String(p.weightKg || 0)
+      })
+      .join(','),
+  ].join('|')
+  const clock = document.getElementById('kell-clock')
+  if (clock && resting) clock.textContent = formatClock(left)
+  if (
+    paintKey === lastPaintKey &&
+    (root.querySelector('#kell-start') ||
+      root.querySelector('#kell-tehtud') ||
+      root.querySelector('.pair') ||
+      root.querySelector('.wait') ||
+      root.querySelector('.title'))
+  ) {
+    return
+  }
+  lastPaintKey = paintKey
   const parts: string[] = []
 
   if (resting) {
-    parts.push('<p class="clock">' + formatClock(left) + '</p>')
+    parts.push('<p class="clock" id="kell-clock">' + formatClock(left) + '</p>')
   }
 
   if (snap && flow !== 'idle' && flow !== 'pick') {
@@ -740,6 +948,8 @@ async function loop(): Promise<void> {
     connectRelay()
     connectPairSocket()
     void pullViaRelayFetch()
+  } else if (auth) {
+    connectLiveSocket()
   }
   paint()
 }
