@@ -130,7 +130,10 @@ export function mergeAppLogs(
 }
 
 export function dayLogInProgress(log: DayLog | null | undefined): boolean {
-  if (!log || log.finishedAt) return false
+  if (!log) return false
+  if (log.exercises.length > 0 && log.exercises.every((ex) => isExerciseLogDone(log, ex.exerciseId))) {
+    return false
+  }
   if (log.startedAt) return true
   return log.exercises.some((ex) => ex.sets.some((set) => set.completed) || ex.finishedEarly)
 }
@@ -175,8 +178,12 @@ export function bootWorkout(opts: {
 
   const allDone =
     opts.exercises.length > 0 && opts.exercises.every((ex) => isExerciseLogDone(log, ex.id))
-  if (log.finishedAt || allDone) {
+  if (allDone) {
     return emptyBoot(log, 'sauna', now)
+  }
+  if (log.finishedAt) {
+    const resumable: DayLog = { ...log, finishedAt: undefined, stoppedEarly: undefined }
+    return emptyBoot(resumable, 'pick', now)
   }
 
   const snap = opts.snap

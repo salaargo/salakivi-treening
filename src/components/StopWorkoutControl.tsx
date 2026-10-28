@@ -13,7 +13,7 @@ export function StopWorkoutControl({ onConfirmStop }: StopWorkoutControlProps) {
         type="button"
         className="btn-stopp"
         onClick={() => setOpen(true)}
-        aria-label="STOPP — lõpeta tänane treening"
+        aria-label="STOPP — peata praegune harjutus"
       >
         STOPP
       </button>
@@ -28,7 +28,7 @@ export function StopWorkoutControl({ onConfirmStop }: StopWorkoutControlProps) {
             onClick={(e) => e.stopPropagation()}
           >
             <p id="stopp-title" className="stopp-modal-text">
-              Oled kindel, et soovid tänast treeningut juba lõpetada?
+              Peata praegune harjutus? Tehtud seeriad jäävad alles ja saad treeningut kohe jätkata.
             </p>
             <div className="stopp-modal-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setOpen(false)}>

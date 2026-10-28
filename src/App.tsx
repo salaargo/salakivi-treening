@@ -82,6 +82,10 @@ export default function App() {
   const registerLiveWorkoutLog = useCallback((getter: (() => DayLog | null) | null) => {
     liveWorkoutLogRef.current = getter
   }, [])
+  const workoutStopRef = useRef<(() => void) | null>(null)
+  const registerWorkoutStop = useCallback((fn: (() => void) | null) => {
+    workoutStopRef.current = fn
+  }, [])
 
   const userId = session?.user.id ?? null
   userIdRef.current = userId
@@ -299,18 +303,22 @@ export default function App() {
   }
 
   function handleConfirmStopToday() {
+    if (workoutStopRef.current) {
+      workoutStopRef.current()
+      return
+    }
     const live =
       screen.name === 'workout' && screen.dateKey === todayKey()
         ? liveWorkoutLogRef.current?.() ?? null
         : null
     const result = stopTodayWorkout(state, live)
     if (result.error || !result.log) {
-      window.alert(result.error ?? 'Tänast treeningut ei saanud lõpetada.')
+      window.alert(result.error ?? 'Tänast treeningut ei saanud peatada.')
       return
     }
     setState(result.state)
     skipCloudSave.current = false
-    setScreen({ name: 'home' })
+    setScreen({ name: 'workout', dateKey: todayKey() })
   }
 
   stopTodayRef.current = handleConfirmStopToday
@@ -439,6 +447,7 @@ export default function App() {
           onUpdateLog={updateLog}
           onChangeState={setState}
           onRegisterLiveLog={registerLiveWorkoutLog}
+          onRegisterStop={registerWorkoutStop}
         />
       )}
 

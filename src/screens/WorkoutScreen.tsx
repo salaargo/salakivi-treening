@@ -30,6 +30,7 @@ interface WorkoutScreenProps {
   onUpdateLog: (log: DayLog) => void
   onChangeState: (next: AppState) => void
   onRegisterLiveLog?: (getter: (() => DayLog | null) | null) => void
+  onRegisterStop?: (fn: (() => void) | null) => void
   compact?: boolean
 }
 
@@ -168,6 +169,7 @@ export function WorkoutScreen({
   onUpdateLog,
   onChangeState,
   onRegisterLiveLog,
+  onRegisterStop,
   compact = false,
 }: WorkoutScreenProps) {
   const date = parseDateKey(dateKey)
@@ -242,6 +244,7 @@ export function WorkoutScreen({
     onFinishEarly: () => {},
     onSelectSlot: (_slot: number) => {},
   })
+  const pauseWorkoutRef = useRef<() => void>(() => {})
 
   const commitLog = useCallback(
     (next: DayLog) => {
@@ -331,14 +334,20 @@ export function WorkoutScreen({
       return {
         ...log,
         startedAt: started,
-        finishedAt: new Date(now).toISOString(),
+        finishedAt: undefined,
+        stoppedEarly: undefined,
         workMs,
         restMs,
-        stoppedEarly: true,
       }
     })
     return () => onRegisterLiveLog(null)
   }, [log, onRegisterLiveLog])
+
+  useEffect(() => {
+    if (!onRegisterStop) return
+    onRegisterStop(() => pauseWorkoutRef.current())
+    return () => onRegisterStop(null)
+  }, [onRegisterStop])
 
   useEffect(() => {
     const rebuilt = buildInitialLog(state, dateKey)
@@ -759,6 +768,33 @@ export function WorkoutScreen({
     setFlow('pick')
   }
 
+  function pauseWorkout() {
+    bumpSessionRev()
+    setStartedAt.current = null
+    lastTehtudAt.current = null
+    setConfirm(null)
+    setShowSetMenu(false)
+    clearRestSession()
+    setRestEndsAt(null)
+    setSelected([])
+    setActiveSlot(0)
+    const next: DayLog = {
+      ...dayLog,
+      finishedAt: undefined,
+      stoppedEarly: undefined,
+      workMs: workMsAcc.current,
+      restMs: restMsAcc.current,
+    }
+    if (allExercisesDone(next, liveExercises)) {
+      commitLog(withFinishStats(next))
+      setFlow('sauna')
+      return
+    }
+    commitLog(next)
+    setFlow('pick')
+  }
+  pauseWorkoutRef.current = pauseWorkout
+
   function goToPicker() {
     if (flow === 'active') {
       setConfirm('abort-set')
@@ -1091,7 +1127,7 @@ export function WorkoutScreen({
             const doneSets = completedCount(dayLog, ex.id)
             const total = logged?.sets.length ?? exerciseRounds(ex)
             const isOn = selected.includes(index)
-            const finishedEarly = Boolean(dayLog.finishedAt) && !done
+            const finishedEarly = Boolean(logged?.finishedEarly) && !done
             const earlyDone = Boolean(logged?.finishedEarly)
             return (
               <li key={ex.id}>
@@ -1099,7 +1135,7 @@ export function WorkoutScreen({
                   type="button"
                   className={`pick-row ${isOn ? 'is-selected' : ''} ${done ? 'is-done' : ''} ${finishedEarly ? 'is-missed' : ''}`}
                   onClick={() => toggleSelect(index)}
-                  disabled={done || Boolean(dayLog.finishedAt)}
+                  disabled={done}
                 >
                   <span className={`pick-check ${finishedEarly ? 'is-missed' : ''}`}>
                     {done ? '✓' : finishedEarly ? '✕' : isOn ? '●' : '○'}
@@ -1111,9 +1147,7 @@ export function WorkoutScreen({
                         ? earlyDone
                           ? `Tehtud · ${doneSets}/${total} seeriat`
                           : 'Tehtud'
-                        : finishedEarly
-                          ? `Tegemata · ${doneSets}/${total} seeriat`
-                          : `${doneSets}/${total} seeriat`}
+                        : `${doneSets}/${total} seeriat`}
                       {isOn && selected.length === 2
                         ? ` · segamini #${selected.indexOf(index) + 1}`
                         : ''}

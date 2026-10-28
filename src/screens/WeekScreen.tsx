@@ -63,15 +63,15 @@ export function WeekScreen({
           const phase = getPhaseForDate(state, key)
           const isToday = key === today
           const log = state.logs[key]
-          const partial = Boolean(log?.finishedAt && dayLogHasIncomplete(log))
-          const done = Boolean(log?.finishedAt && !dayLogHasIncomplete(log))
-          const inProgress = !done && !partial && dayLogInProgress(log)
+          const incomplete = Boolean(log && dayLogHasIncomplete(log))
+          const done = Boolean(log && !incomplete && log.exercises.length > 0)
+          const inProgress = !done && dayLogInProgress(log)
 
           return (
             <li key={key}>
               <button
                 type="button"
-                className={`day-card ${isToday ? 'is-today' : ''} ${plan ? '' : 'is-rest'} ${done ? 'is-done' : ''} ${partial ? 'is-partial' : ''} ${inProgress ? 'is-in-progress' : ''}`}
+                className={`day-card ${isToday ? 'is-today' : ''} ${plan ? '' : 'is-rest'} ${done ? 'is-done' : ''} ${inProgress ? 'is-in-progress' : ''}`}
                 onClick={() => plan && onSelectDay(key)}
                 disabled={!plan}
               >
@@ -91,7 +91,6 @@ export function WeekScreen({
                       <p className="day-plan">{plan.name}</p>
                       {done && <p className="done-tag">Tehtud</p>}
                       {inProgress && <p className="in-progress-tag">Pooleli</p>}
-                      {partial && <p className="missed-tag">Tegemata jäi</p>}
                     </>
                   ) : (
                     <p className="muted">Puhkepäev</p>

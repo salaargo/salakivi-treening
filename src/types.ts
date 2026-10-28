@@ -73,7 +73,7 @@ export interface DayLog {
   workMs?: number
   /** Tehtud → järgmine Start intervallide summa (ms) */
   restMs?: number
-  /** Lõpetatud STOPPiga enne kõigi harjutuste tegemist */
+  /** Vana väli: STOPP ei lukusta enam päeva, treeningut saab jätkata. */
   stoppedEarly?: boolean
 }
 

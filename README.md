@@ -15,7 +15,7 @@ Ava `http://localhost:43173`.
 
 ## Treeninguvoog
 
-- **Start** on all, **STOPP** üleval paremal (ainult treeningu ajal).
+- **Start** on all, **STOPP** üleval paremal (ainult treeningu ajal): peatab pooleli harjutuse, tehtud seeriad jäävad ja trenni saab jätkata.
 - **Segamini (kaks harjutust):** paus ainult pärast teist harjutust. Taimer käib kella järgi (`endsAt`) ja taastub ekraani avamisel.
 - Järgmisel treeningul näitab valitud pink **eelmise korra viimast raskust**.
 - Telefonis püstivaade (ei reageeri põõramisele); arvutis laiem paigutus ja **Ajalugu** tabel (ainult enda logid).

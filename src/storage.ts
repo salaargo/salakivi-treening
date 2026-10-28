@@ -669,12 +669,11 @@ export function stopTodayWorkout(
   }
 
   const now = new Date().toISOString()
-  const incomplete = dayLogHasIncomplete(base)
   const log: DayLog = {
     ...base,
     startedAt: base.startedAt ?? now,
-    finishedAt: now,
-    stoppedEarly: incomplete || Boolean(base.stoppedEarly),
+    finishedAt: undefined,
+    stoppedEarly: undefined,
     workMs: base.workMs ?? 0,
     restMs: base.restMs ?? 0,
   }
