@@ -20,6 +20,7 @@ import {
 import { createMachine, withDefaultMachine } from '../exercises'
 import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
 import { watchUrl } from '../orientation'
+import type { WatchKind } from '../watchKind'
 import { getSupabase } from '../lib/supabase'
 import { appleWatchPairUrl, publishWatchPairAuth } from '../watchPair'
 import { saveDisplayName } from '../cloud/sync'
@@ -36,6 +37,8 @@ interface SettingsScreenProps {
   onLogout?: () => void
   isAdmin?: boolean
   onStats?: () => void
+  watchKind?: WatchKind | null
+  onWatchKindChange?: (kind: WatchKind) => void
 }
 
 function newId(prefix: string): string {
@@ -53,6 +56,8 @@ export function SettingsScreen({
   onLogout,
   isAdmin = false,
   onStats,
+  watchKind = null,
+  onWatchKindChange,
 }: SettingsScreenProps) {
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null)
@@ -870,39 +875,55 @@ export function SettingsScreen({
 
       <section className="settings-block">
         <h3>Nutikell</h3>
-        <p className="muted small">
-          Galaxy Watch: ümar vaade kella brauseris. Apple Watch: toksa kellas sama kuuekohaline
-          kood, mis on siin ja avalehel. Hoia treeningäpp telefonis lahti.
-        </p>
-        {applePin && (
-          <>
-            <p className="muted small">Apple Watchi kood</p>
-            <p className="apple-pin">{applePin}</p>
-          </>
-        )}
-        <div className="home-actions">
-          <a className="btn btn-secondary full" href={galaxyHref}>
-            Galaxy Watch (ümar)
-          </a>
+        <p className="muted small">Vali, millist kella kasutad. Avalehel näidatakse koodi ainult Apple Watchi puhul.</p>
+        <div className="watch-kind-row">
           <button
             type="button"
-            className="btn btn-ghost full"
-            onClick={() => {
-              void navigator.clipboard?.writeText(galaxyHref).then(
-                () => window.alert('Galaxy Watchi link on kopeeritud.'),
-                () => window.alert(galaxyHref),
-              )
-            }}
+            className={`watch-kind-btn ${watchKind === 'galaxy' ? 'is-on' : ''}`}
+            onClick={() => onWatchKindChange?.('galaxy')}
           >
-            Kopeeri Galaxy link
+            Galaxy Watch
           </button>
-          <a className="btn btn-secondary full" href={appleHref}>
-            Apple Watch (kandiline)
-          </a>
-          <button type="button" className="btn btn-ghost full" onClick={() => void copyAppleLink()}>
-            Kopeeri Apple link
+          <button
+            type="button"
+            className={`watch-kind-btn ${watchKind === 'apple' ? 'is-on' : ''}`}
+            onClick={() => onWatchKindChange?.('apple')}
+          >
+            Apple Watch
           </button>
         </div>
+        {watchKind === 'galaxy' && (
+          <div className="home-actions">
+            <p className="muted small">Ava see link kella brauseris.</p>
+            <a className="btn btn-secondary full" href={galaxyHref}>
+              Ava Galaxy Watchi vaade
+            </a>
+            <button
+              type="button"
+              className="btn btn-ghost full"
+              onClick={() => {
+                void navigator.clipboard?.writeText(galaxyHref).then(
+                  () => window.alert('Galaxy Watchi link on kopeeritud.'),
+                  () => window.alert(galaxyHref),
+                )
+              }}
+            >
+              Kopeeri Galaxy link
+            </button>
+          </div>
+        )}
+        {watchKind === 'apple' && (
+          <div className="home-actions">
+            <p className="muted small">Toksa kellas see kood. Hoia treeningäpp telefonis lahti.</p>
+            {applePin && <p className="apple-pin">{applePin}</p>}
+            <a className="btn btn-secondary full" href={appleHref}>
+              Ava Apple Watchi vaade
+            </a>
+            <button type="button" className="btn btn-ghost full" onClick={() => void copyAppleLink()}>
+              Kopeeri Apple link
+            </button>
+          </div>
+        )}
       </section>
 
       {userEmail && (

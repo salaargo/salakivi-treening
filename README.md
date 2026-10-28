@@ -19,7 +19,7 @@ Ava `http://localhost:43173`.
 - **Segamini (kaks harjutust):** paus ainult pärast teist harjutust. Taimer käib kella järgi (`endsAt`) ja taastub ekraani avamisel.
 - Järgmisel treeningul näitab valitud pink **eelmise korra viimast raskust**.
 - Telefonis püstivaade (ei reageeri põõramisele); arvutis laiem paigutus ja **Ajalugu** tabel (ainult enda logid).
-- **Nutikell:** Galaxy Watch `?kell=galaxy` kella brauseris. Apple Watch: ava kellas `kell.html` ja toksa avalehel / Seadetes nähtav 6-kohaline kood. Hoia treeningäpp telefonis lahti.
+- **Nutikell:** Seaded → vali Galaxy või Apple. Galaxy: ümar vaade kella brauseris. Apple: toksa kellas 6-kohaline kood (avalehel). Hoia treeningäpp telefonis lahti. Kui trenn on läbi, näitab kell **Sauna**.
 - **Faasid** on vabalt muudetavad: Seaded → Faasid.
 - **Admin (Argo):** Seaded → kasutajate nimekiri ja näidiskava andmine.
 

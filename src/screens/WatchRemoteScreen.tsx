@@ -298,9 +298,8 @@ export function WatchRemoteScreen({ snap, face, needsLogin = false, onLogin }: W
             )}
             {flow === 'pick' && <p className="watch-wait">Vali harjutus telefonis</p>}
             {flow === 'sauna' && (
-              <p className="watch-wait">
-                Sauna!
-                <span className="watch-wait-sub">Uus trenn algab telefonist</span>
+              <p className="btn btn-tehtud-lg watch-start watch-sauna" aria-live="polite">
+                Sauna
               </p>
             )}
             {(flow === 'idle' || !snap) && <p className="watch-wait">Ootan telefoni…</p>}

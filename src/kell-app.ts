@@ -869,7 +869,7 @@ function paint(): void {
     parts.push('<p class="clock" id="kell-clock">' + formatClock(left) + '</p>')
   }
 
-  if (snap && flow !== 'idle' && flow !== 'pick') {
+  if (snap && flow !== 'idle' && flow !== 'pick' && flow !== 'sauna') {
     pair.forEach(function (item) {
       const on = item.slot === (snap && snap.activeSlot != null ? snap.activeSlot : 0)
       parts.push(
@@ -905,7 +905,7 @@ function paint(): void {
     parts.push('<button class="tehtud" id="kell-tehtud" type="button">Tehtud</button>')
   }
   if (flow === 'pick') parts.push('<p class="wait">Vali harjutus telefonis</p>')
-  if (flow === 'sauna') parts.push('<p class="title">Sauna!</p><p class="sub">Uus trenn algab telefonist</p>')
+  if (flow === 'sauna') parts.push('<p class="start sauna-mark">Sauna</p>')
   if (!snap || flow === 'idle') {
     parts.push('<p class="title">Salakivi kell</p>')
     parts.push(
