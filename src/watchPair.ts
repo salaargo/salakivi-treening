@@ -1,6 +1,6 @@
 import type { RealtimeChannel, Session } from '@supabase/supabase-js'
 import { getSupabase, isCloudEnabled } from './lib/supabase'
-import { getLatestLiveSnapshot } from './live/remote'
+import { getLatestLiveSnapshot, type LiveSnapshot } from './live/remote'
 import { watchUrl } from './orientation'
 
 const LOCAL_PAIR_KEY = 'salakivi-watch-pair-v1'
@@ -158,14 +158,48 @@ export async function appleWatchPairUrl(userId: string): Promise<{ href: string;
   return { href: url.toString(), token, needsSql }
 }
 
+function slimSnap(snap: LiveSnapshot | null): Record<string, unknown> | null {
+  if (!snap || snap.v !== 1) return null
+  return {
+    v: 1,
+    at: snap.at,
+    dateKey: snap.dateKey,
+    flow: snap.flow,
+    epoch: snap.epoch,
+    seq: snap.seq,
+    exerciseName: snap.exerciseName,
+    otherName: snap.otherName,
+    remainingSets: snap.remainingSets,
+    weightKg: snap.weightKg,
+    restEndsAt: snap.restEndsAt,
+    restSeconds: snap.restSeconds,
+    activeSlot: snap.activeSlot,
+    pairChoices: snap.pairChoices,
+    remainingParts: snap.remainingParts,
+    remainingHint: snap.remainingHint,
+    planName: snap.planName,
+  }
+}
+
 export async function publishWatchPairAuth(token: string, session: Session): Promise<void> {
   if (!token || !session.access_token) return
-  const body = JSON.stringify(authPayload(session))
+  const headers = { 'Content-Type': 'text/plain' }
+  const snap = slimSnap(getLatestLiveSnapshot())
+  const withSnap = JSON.stringify({ ...authPayload(session), snap })
+  const res = await fetch(watchRelayUrl(token), { method: 'POST', body: withSnap, headers })
+  if (res.ok) return
   await fetch(watchRelayUrl(token), {
     method: 'POST',
-    body,
-    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(authPayload(session)),
+    headers,
   })
+  if (snap) {
+    await fetch(watchRelayUrl(token), {
+      method: 'POST',
+      body: JSON.stringify({ snap }),
+      headers,
+    })
+  }
 }
 
 function authPayload(session: Session): { a: string; r: string; u: string } {

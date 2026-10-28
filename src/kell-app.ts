@@ -196,16 +196,6 @@ function takeAuthFromUnknown(value: unknown): void {
       user_id: rec.u,
       email: '',
     })
-    try {
-      relayEs?.close()
-    } catch {
-      /* ignore */
-    }
-    try {
-      ws?.close()
-    } catch {
-      /* ignore */
-    }
     connectLiveSocket()
   }
   const maybeSnap = rec.snap as LiveSnapshot | undefined
@@ -213,8 +203,21 @@ function takeAuthFromUnknown(value: unknown): void {
   if (rec.payload) takeAuthFromUnknown(rec.payload)
 }
 
+function isLiveFlow(flow?: string): boolean {
+  return flow === 'pick' || flow === 'ready' || flow === 'active' || flow === 'resting'
+}
+
 function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (!incoming || incoming.v !== 1) return false
+  if (isLiveFlow(incoming.flow) && (!snap || snap.flow === 'idle' || snap.flow === 'sauna')) {
+    snap = incoming
+    lastPaintKey = ''
+    errorText = ''
+    return true
+  }
+  if (incoming.flow === 'idle' && snap && isLiveFlow(snap.flow) && incoming.dateKey === snap.dateKey) {
+    return false
+  }
   if (Date.now() < localHoldUntil && snap) {
     const sameWork =
       (incoming.session?.rev ?? 0) === (snap.session?.rev ?? 0) &&
@@ -225,11 +228,12 @@ function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   }
   if (snap && !snapshotShouldReplace(incoming, snap)) return false
   snap = incoming
+  lastPaintKey = ''
   return true
 }
 
 function connectPairSocket(): void {
-  if (!pairCode || !SUPABASE_URL || !ANON_KEY || auth || useRpc) return
+  if (!pairCode || !SUPABASE_URL || !ANON_KEY) return
   if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return
   const host = SUPABASE_URL.replace(/^https:/, 'wss:')
   const url = host + '/realtime/v1/websocket?apikey=' + encodeURIComponent(ANON_KEY) + '&vsn=1.0.0'
@@ -406,7 +410,7 @@ function connectLiveSocket(): void {
 let relayEs: EventSource | null = null
 
 function connectRelay(): void {
-  if (!pairCode || auth) return
+  if (!pairCode) return
   if (relayEs && relayEs.readyState !== EventSource.CLOSED) return
   try {
     relayEs = new EventSource('https://ntfy.sh/skw-' + pairCode + '/sse?since=all')
@@ -418,15 +422,8 @@ function connectRelay(): void {
       const data = JSON.parse(String((ev as MessageEvent).data)) as { message?: string }
       if (!data.message) return
       takeAuthFromUnknown(JSON.parse(data.message))
-      if (auth) {
-        errorText = ''
-        try {
-          relayEs?.close()
-        } catch {
-          /* ignore */
-        }
-        void pullSnap().then(paint)
-      }
+      errorText = ''
+      paint()
     } catch {
       /* ignore */
     }
@@ -450,7 +447,7 @@ function ingestNtfyBody(text: string): void {
 }
 
 async function pullViaRelayFetch(): Promise<void> {
-  if (!pairCode || auth) return
+  if (!pairCode) return
   try {
     const polled = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?poll=1&since=all')
     if (polled.ok) ingestNtfyBody(await polled.text())
@@ -519,8 +516,9 @@ async function pullViaRpc(): Promise<boolean> {
 }
 
 async function pullSnap(): Promise<void> {
-  if (!auth && pairCode) {
+  if (pairCode) {
     connectRelay()
+    connectPairSocket()
     await pullViaRelayFetch()
   }
   if (pairCode && !useRpc) {
@@ -562,7 +560,13 @@ async function pullSnap(): Promise<void> {
   if (stateRes.ok) {
     const rows = (await stateRes.json()) as { state?: unknown }[]
     const fromState = liveFromState(rows[0]?.state)
-    if (fromState && (!next || snapshotShouldReplace(fromState, next))) next = fromState
+    if (fromState) {
+      if (!next) next = fromState
+      else if (isLiveFlow(fromState.flow) && !isLiveFlow(next.flow)) next = fromState
+      else if (!(isLiveFlow(next.flow) && !isLiveFlow(fromState.flow)) && snapshotShouldReplace(fromState, next)) {
+        next = fromState
+      }
+    }
   }
 
   if (next) adoptSnap(next)
@@ -904,7 +908,9 @@ function paint(): void {
   if (flow === 'sauna') parts.push('<p class="title">Sauna!</p><p class="sub">Uus trenn algab telefonist</p>')
   if (!snap || flow === 'idle') {
     parts.push('<p class="title">Salakivi kell</p>')
-    parts.push('<p class="sub">Ootan telefoni… alusta trenni telefonis.</p>')
+    parts.push(
+      '<p class="sub">Hoia treeningäpp telefonis lahti. Ootan treeningu seisu…</p>',
+    )
   }
   if (errorText) parts.push('<p class="err">' + esc(errorText) + '</p>')
 
@@ -944,21 +950,22 @@ async function loop(): Promise<void> {
   } catch {
     /* võrk */
   }
-  if (!auth && !useRpc) {
+  if (pairCode) {
     connectRelay()
     connectPairSocket()
     void pullViaRelayFetch()
-  } else if (auth) {
-    connectLiveSocket()
   }
+  if (auth) connectLiveSocket()
   paint()
 }
 
 bindApp()
-if (pairCode && !auth) {
+if (pairCode) {
   connectRelay()
+  connectPairSocket()
   void pullViaRelayFetch()
 }
+if (auth) connectLiveSocket()
 paint()
 void loop()
 window.setInterval(function () {

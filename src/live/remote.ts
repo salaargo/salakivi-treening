@@ -240,7 +240,7 @@ function schedulePersist(snap: LiveSnapshot): void {
     const next = pendingPersist
     pendingPersist = null
     if (next) void persistCloud(next)
-  }, 1600)
+  }, 400)
 }
 
 function flushPersist(): void {
@@ -352,7 +352,13 @@ function onStorage(ev: StorageEvent): void {
 export function publishSnapshot(snap: LiveSnapshot): void {
   const epoch = snap.epoch ?? lastSnap?.epoch ?? Date.now()
   const stamped: LiveSnapshot = { ...snap, epoch, seq: ++publishSeq, at: Date.now() }
-  if (lastSnap && !snapshotShouldReplace(stamped, lastSnap)) return
+  const liveIncoming =
+    stamped.flow === 'pick' ||
+    stamped.flow === 'ready' ||
+    stamped.flow === 'active' ||
+    stamped.flow === 'resting'
+  const idleCurrent = !lastSnap || lastSnap.flow === 'idle' || lastSnap.flow === 'sauna'
+  if (lastSnap && !(liveIncoming && idleCurrent) && !snapshotShouldReplace(stamped, lastSnap)) return
   applySnap(stamped)
   getBc()?.postMessage({ kind: 'snap', snap: stamped } satisfies Envelope)
   void supabaseChannel?.send({
