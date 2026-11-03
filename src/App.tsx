@@ -26,13 +26,14 @@ import { WatchRemoteScreen } from './screens/WatchRemoteScreen'
 import { isWatchMode, lockPortrait, useViewport, watchFace } from './orientation'
 import {
   connectLiveRemote,
+  ingestLiveEnvelope,
   pullRemoteSnapshot,
   sendCommand,
   subscribeCommands,
   subscribeSnapshot,
   type LiveSnapshot,
 } from './live/remote'
-import { ensureWatchPairToken, startWatchPairBeacon } from './watchPair'
+import { ensureWatchPairToken, startWatchPairBeacon, subscribeWatchRelay } from './watchPair'
 import { loadWatchKind, saveWatchKind, type WatchKind } from './watchKind'
 
 const SCREEN_KEY = 'salakivi-screen-v1'
@@ -228,7 +229,12 @@ export default function App() {
       return
     }
     void ensureWatchPairToken(userId).then((row) => setWatchPin(row.token))
-    return startWatchPairBeacon(userId)
+    const stopBeacon = startWatchPairBeacon(userId)
+    const stopRelay = subscribeWatchRelay((env) => ingestLiveEnvelope(env))
+    return () => {
+      stopBeacon()
+      stopRelay()
+    }
   }, [cloud, userId, watchMode, watchKind])
 
   useEffect(() => {

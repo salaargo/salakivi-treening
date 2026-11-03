@@ -320,6 +320,7 @@ function flushLive(): void {
           payload: env,
         },
         ref: String(++wsRef),
+        join_ref: 'live',
       }),
     )
   }
@@ -572,13 +573,50 @@ async function pullSnap(): Promise<void> {
   if (next) adoptSnap(next)
 }
 
+async function pushRelay(env: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapshot }): Promise<void> {
+  if (!pairCode) return
+  try {
+    await fetch('https://ntfy.sh/skw-' + pairCode, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(env),
+    })
+  } catch {
+    /* ntfy on varuvariant */
+  }
+}
+
+async function mergeLiveState(next: LiveSnapshot): Promise<void> {
+  if (!auth) return
+  const res = await api(
+    '/rest/v1/user_app_state?user_id=eq.' + encodeURIComponent(auth.user_id) + '&select=state',
+    { method: 'GET' },
+    auth.access_token,
+  )
+  if (!res.ok) return
+  const rows = (await res.json()) as { state?: Record<string, unknown> }[]
+  const existing = rows[0]?.state && typeof rows[0].state === 'object' ? rows[0].state : null
+  if (!existing) return
+  const existingLive = liveFromState(existing)
+  if (existingLive && !snapshotShouldReplace(next, existingLive)) return
+  await api(
+    '/rest/v1/user_app_state?user_id=eq.' + encodeURIComponent(auth.user_id),
+    {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ state: { ...existing, __live: next } }),
+    },
+    auth.access_token,
+  )
+}
+
 async function pushSnap(next: LiveSnapshot): Promise<void> {
   if (useRpc && pairCode) {
-    await api('/rest/v1/rpc/watch_push', {
+    const rpc = await api('/rest/v1/rpc/watch_push', {
       method: 'POST',
       body: JSON.stringify({ pair: pairCode, next }),
     })
-    return
+    if (rpc.ok) return
   }
   if (!auth) return
   const body = {
@@ -586,8 +624,8 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
     snap: next,
     updated_at: new Date().toISOString(),
   }
-  await api(
-    '/rest/v1/live_remote',
+  const upsert = await api(
+    '/rest/v1/live_remote?on_conflict=user_id',
     {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
@@ -595,6 +633,29 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
     },
     auth.access_token,
   )
+  if (!upsert.ok) {
+    const patch = await api(
+      '/rest/v1/live_remote?user_id=eq.' + encodeURIComponent(auth.user_id),
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ snap: next, updated_at: body.updated_at }),
+      },
+      auth.access_token,
+    )
+    if (!patch.ok) {
+      await api(
+        '/rest/v1/live_remote',
+        {
+          method: 'POST',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(body),
+        },
+        auth.access_token,
+      )
+    }
+  }
+  await mergeLiveState(next)
 }
 
 function weightFromSession(current: LiveSnapshot, slot: number): number | undefined {
@@ -775,9 +836,21 @@ function newCmd(
   }
 }
 
+async function publishCommand(
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot',
+  published: LiveSnapshot,
+  extra?: { rev?: number; slot?: number },
+): Promise<void> {
+  const cmd = newCmd(type, extra)
+  await pushSnap(published)
+  sendLive({ kind: 'cmd', cmd })
+  sendLive({ kind: 'snap', snap: published })
+  await pushRelay({ kind: 'cmd', cmd })
+}
+
 async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): Promise<void> {
   if (!snap || snap.flow === 'idle' || snap.flow === 'sauna' || snap.flow === 'pick') return
-  localHoldUntil = Date.now() + 5000
+  localHoldUntil = Date.now() + 8000
   connectLiveSocket()
   if (snap.session) {
     const nextSession: LiveSession = applySessionCommand(snap.session, type, Date.now(), { slot: slot })
@@ -788,24 +861,24 @@ async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot'
       snap = published
       lastPaintKey = ''
       paint()
-      sendLive({ kind: 'cmd', cmd: newCmd(type, { rev: nextSession.rev, slot }) })
-      sendLive({ kind: 'snap', snap: published })
-      await pushSnap(published)
+      await publishCommand(type, published, { rev: nextSession.rev, slot })
       return
     }
   }
-  sendLive({ kind: 'cmd', cmd: newCmd(type, { slot }) })
   if (type === 'start' && (snap.flow === 'ready' || snap.flow === 'resting')) {
     snap = { ...snap, flow: 'active', at: Date.now(), seq: (snap.seq || 0) + 1 }
     lastPaintKey = ''
     paint()
-    await pushSnap(snap)
+    await publishCommand(type, snap, { slot })
   } else if (type === 'tehtud' && snap.flow === 'active') {
     snap = { ...snap, flow: 'resting', at: Date.now(), seq: (snap.seq || 0) + 1 }
     lastPaintKey = ''
     paint()
-    await pushSnap(snap)
+    await publishCommand(type, snap, { slot })
   } else {
+    const cmd = newCmd(type, { slot })
+    sendLive({ kind: 'cmd', cmd })
+    await pushRelay({ kind: 'cmd', cmd })
     lastPaintKey = ''
     paint()
   }

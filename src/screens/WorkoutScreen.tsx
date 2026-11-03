@@ -566,12 +566,11 @@ export function WorkoutScreen({
           )
         ) {
           hydrateSession(snap.session, snap.epoch)
-          return
         }
-        publish()
       })
     }
     catchUpFromWatch()
+    const catchId = window.setInterval(catchUpFromWatch, 800)
     const onWake = () => {
       if (document.visibilityState === 'hidden') return
       catchUpFromWatch()
@@ -587,6 +586,7 @@ export function WorkoutScreen({
     window.addEventListener('pagehide', flushPublish)
     return () => {
       window.clearInterval(id)
+      window.clearInterval(catchId)
       document.removeEventListener('visibilitychange', onWake)
       document.removeEventListener('visibilitychange', onHide)
       window.removeEventListener('focus', onWake)
@@ -624,6 +624,22 @@ export function WorkoutScreen({
   }, [dateKey])
 
   useEffect(() => {
+    const hydrateFromCloud = () => {
+      void pullRemoteSnapshot().then((snap) => {
+        if (
+          snap?.dateKey === dateKey &&
+          snap.session &&
+          snapshotIsAhead(
+            snap,
+            sessionRevRef.current,
+            completedSetCount(logRef.current),
+            flowRef.current,
+          )
+        ) {
+          hydrateSession(snap.session, snap.epoch)
+        }
+      })
+    }
     return subscribeCommands((cmd: LiveCommand) => {
       const handlers = commandRef.current
       if (cmd.rev != null && sessionRevRef.current >= cmd.rev) return
@@ -648,19 +664,30 @@ export function WorkoutScreen({
         hydrateSession(remote.session, remote.epoch)
         return
       }
+      let applied = false
       if (cmd.type === 'start' && (handlers.flow === 'ready' || handlers.flow === 'resting')) {
         handlers.onStart()
+        applied = true
       }
-      if (cmd.type === 'tehtud' && handlers.flow === 'active') handlers.onTehtud()
-      if (cmd.type === 'skip-rest' && handlers.flow === 'resting') handlers.onSkipRest()
+      if (cmd.type === 'tehtud' && handlers.flow === 'active') {
+        handlers.onTehtud()
+        applied = true
+      }
+      if (cmd.type === 'skip-rest' && handlers.flow === 'resting') {
+        handlers.onSkipRest()
+        applied = true
+      }
       if (cmd.type === 'select-slot' && (cmd.slot === 0 || cmd.slot === 1)) {
         handlers.onSelectSlot(cmd.slot)
+        applied = true
       }
       if (cmd.type === 'finish-exercise' && (handlers.flow === 'ready' || handlers.flow === 'active')) {
         handlers.onFinishEarly()
+        applied = true
       }
+      if (!applied) hydrateFromCloud()
     })
-  }, [hydrateSession])
+  }, [dateKey, hydrateSession])
 
   if (!plan || !phase || !progress || !log || !liveExercises.length) {
     return (

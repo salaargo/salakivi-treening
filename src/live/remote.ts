@@ -193,15 +193,29 @@ async function persistCloud(snap: LiveSnapshot): Promise<void> {
 
   if (!tableMissing) {
     try {
-      const { error } = await supabase.from(TABLE).upsert(
-        {
-          user_id: currentUserId,
-          snap,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id' },
-      )
-      if (error && isMissingRelation(error)) tableMissing = true
+      const { data, error: readError } = await supabase
+        .from(TABLE)
+        .select('snap')
+        .eq('user_id', currentUserId)
+        .maybeSingle()
+      if (readError && isMissingRelation(readError)) {
+        tableMissing = true
+      } else {
+        const existingSnap = data?.snap as LiveSnapshot | undefined
+        if (existingSnap?.v === 1 && !snapshotShouldReplace(snap, existingSnap)) {
+          applySnap(existingSnap)
+          return
+        }
+        const { error } = await supabase.from(TABLE).upsert(
+          {
+            user_id: currentUserId,
+            snap,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' },
+        )
+        if (error && isMissingRelation(error)) tableMissing = true
+      }
     } catch {
       /* võrk */
     }
@@ -429,4 +443,17 @@ export function subscribeCommands(onCmd: (cmd: LiveCommand) => void): () => void
   return () => {
     cmdListeners.delete(onCmd)
   }
+}
+
+export type LiveEnvelope = Envelope
+
+/** Apple Watch ntfy / toor-websocket: võta käsk või seis vastu. */
+export function ingestLiveEnvelope(env: unknown): void {
+  if (!env || typeof env !== 'object') return
+  const rec = env as Envelope
+  if (rec.kind === 'snap' && rec.snap?.v === 1) {
+    emit(rec)
+    return
+  }
+  if (rec.kind === 'cmd' && rec.cmd?.id && rec.cmd.type) emit(rec)
 }

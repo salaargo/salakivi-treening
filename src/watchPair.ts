@@ -262,3 +262,37 @@ export function startWatchPairBeacon(userId: string): () => void {
     if (channel) void supabase.removeChannel(channel)
   }
 }
+
+/** Telefon kuulab kella ntfy käske — WatchOS websocket Supabase'i ei pruugi lasta. */
+export function subscribeWatchRelay(
+  onEnv: (env: { kind: 'cmd'; cmd: unknown } | { kind: 'snap'; snap: LiveSnapshot }) => void,
+): () => void {
+  const token = readLocalToken()
+  if (!token || typeof EventSource === 'undefined') return () => {}
+  let es: EventSource | null = null
+  try {
+    es = new EventSource(watchRelayUrl(token) + '/sse')
+  } catch {
+    return () => {}
+  }
+  const onMessage = (ev: MessageEvent) => {
+    try {
+      const data = JSON.parse(String(ev.data)) as { message?: string }
+      if (!data.message) return
+      const parsed = JSON.parse(data.message) as {
+        kind?: string
+        cmd?: unknown
+        snap?: LiveSnapshot
+      }
+      if (parsed.kind === 'cmd' && parsed.cmd) onEnv({ kind: 'cmd', cmd: parsed.cmd })
+      else if (parsed.kind === 'snap' && parsed.snap?.v === 1) onEnv({ kind: 'snap', snap: parsed.snap })
+    } catch {
+      /* ignore */
+    }
+  }
+  es.addEventListener('message', onMessage)
+  return () => {
+    es?.removeEventListener('message', onMessage)
+    es?.close()
+  }
+}
