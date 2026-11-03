@@ -914,7 +914,11 @@ export function SettingsScreen({
         )}
         {watchKind === 'apple' && (
           <div className="home-actions">
-            <p className="muted small">Toksa kellas see kood. Hoia treeningäpp telefonis lahti.</p>
+            <p className="muted small">
+              Toksa kellas see kood. Hoia treeningäpp telefonis lahti. Treeningu ajal hoiab kell Safari lahti
+              vaikse heliga — randme allavõtmisel ekraan siiski kustub (Apple’i piirang), aga brauser peaks Dockis
+              alles jääma. Lisa leht Safari järjehoidjatesse.
+            </p>
             {applePin && <p className="apple-pin">{applePin}</p>}
             <a className="btn btn-secondary full" href={appleHref}>
               Ava Apple Watchi vaade

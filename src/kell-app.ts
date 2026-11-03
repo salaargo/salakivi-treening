@@ -6,6 +6,9 @@ const SUPABASE_URL = String(import.meta.env.VITE_SUPABASE_URL || '')
 const ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '')
 const AUTH_KEY = 'salakivi-kell-auth-v1'
 const PAIR_KEY = 'salakivi-kell-pair-v1'
+const SNAP_STORE = 'salakivi-kell-snap-v1'
+const SILENT_WAV =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
 
 interface KellAuth {
   access_token: string
@@ -114,6 +117,11 @@ let lastPaintKey = ''
 let liveWs: WebSocket | null = null
 let liveJoined = false
 let pendingLive: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapshot }[] = []
+let keepAudio: HTMLAudioElement | null = null
+let keepCtx: AudioContext | null = null
+let keepOsc: OscillatorNode | null = null
+let keepWanted = false
+let wakeSentinel: { release: () => Promise<void> } | null = null
 
 function esc(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
@@ -207,12 +215,142 @@ function isLiveFlow(flow?: string): boolean {
   return flow === 'pick' || flow === 'ready' || flow === 'active' || flow === 'resting'
 }
 
+function readStoredSnap(): LiveSnapshot | null {
+  try {
+    const raw = localStorage.getItem(SNAP_STORE)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as LiveSnapshot
+    return parsed && parsed.v === 1 ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function rememberSnap(): void {
+  if (!snap || snap.v !== 1) return
+  try {
+    localStorage.setItem(SNAP_STORE, JSON.stringify(snap))
+  } catch {
+    /* ignore */
+  }
+}
+
+function startKeepAudio(): void {
+  if (!keepAudio) {
+    const el = document.getElementById('kell-keep') as HTMLAudioElement | null
+    keepAudio = el || new Audio()
+    keepAudio.src = SILENT_WAV
+    keepAudio.loop = true
+    keepAudio.preload = 'auto'
+    keepAudio.volume = 0.02
+    keepAudio.setAttribute('playsinline', 'true')
+    keepAudio.setAttribute('webkit-playsinline', 'true')
+  }
+  const play = keepAudio.play()
+  if (play && typeof play.catch === 'function') play.catch(function () {})
+}
+
+function startKeepTone(): void {
+  const w = window as unknown as {
+    AudioContext?: typeof AudioContext
+    webkitAudioContext?: typeof AudioContext
+  }
+  const Ctor = w.AudioContext || w.webkitAudioContext
+  if (!Ctor) return
+  try {
+    if (!keepCtx) keepCtx = new Ctor()
+    const ctx = keepCtx
+    if (!ctx) return
+    if (ctx.state === 'suspended') void ctx.resume()
+    if (!keepOsc) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.frequency.value = 18
+      gain.gain.value = 0.0008
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      keepOsc = osc
+    }
+  } catch {
+    /* WatchOS AudioContext */
+  }
+}
+
+function setMediaSession(): void {
+  const media = (navigator as Navigator & { mediaSession?: MediaSession }).mediaSession
+  if (!media) return
+  try {
+    media.metadata = new MediaMetadata({
+      title: snap && snap.exerciseName ? snap.exerciseName : 'Salakivi treening',
+      artist: 'Salakivi kell',
+      album: snap && snap.planName ? snap.planName : 'Treening',
+    })
+    media.playbackState = 'playing'
+  } catch {
+    /* WatchOS MediaSession */
+  }
+}
+
+async function acquireWakeLock(): Promise<void> {
+  const nav = navigator as Navigator & {
+    wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> }
+  }
+  if (!nav.wakeLock || document.visibilityState !== 'visible') return
+  try {
+    wakeSentinel = await nav.wakeLock.request('screen')
+  } catch {
+    /* WatchOS ei pruugi wake locki anda. */
+  }
+}
+
+function ensureKeepAlive(): void {
+  keepWanted = true
+  startKeepAudio()
+  startKeepTone()
+  setMediaSession()
+  void acquireWakeLock()
+}
+
+function stopKeepAlive(): void {
+  keepWanted = false
+  if (keepAudio) {
+    try {
+      keepAudio.pause()
+    } catch {
+      /* ignore */
+    }
+  }
+  if (keepOsc) {
+    try {
+      keepOsc.stop()
+    } catch {
+      /* ignore */
+    }
+    keepOsc = null
+  }
+  if (keepCtx && keepCtx.state !== 'closed') {
+    void keepCtx.suspend()
+  }
+  if (wakeSentinel) {
+    void wakeSentinel.release()
+    wakeSentinel = null
+  }
+}
+
+function syncKeepAlive(): void {
+  if (isLiveFlow(snap ? snap.flow : 'idle')) ensureKeepAlive()
+  else stopKeepAlive()
+}
+
 function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (!incoming || incoming.v !== 1) return false
   if (isLiveFlow(incoming.flow) && (!snap || snap.flow === 'idle' || snap.flow === 'sauna')) {
     snap = incoming
     lastPaintKey = ''
     errorText = ''
+    rememberSnap()
+    syncKeepAlive()
     return true
   }
   if (incoming.flow === 'idle' && snap && isLiveFlow(snap.flow) && incoming.dateKey === snap.dateKey) {
@@ -229,7 +367,14 @@ function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (snap && !snapshotShouldReplace(incoming, snap)) return false
   snap = incoming
   lastPaintKey = ''
+  rememberSnap()
+  syncKeepAlive()
   return true
+}
+
+if (!snap) {
+  const storedBoot = readStoredSnap()
+  if (storedBoot) snap = storedBoot
 }
 
 function connectPairSocket(): void {
@@ -715,6 +860,9 @@ function takeTap(ev: Event): boolean {
 }
 
 function onAppPointer(ev: Event): void {
+  startKeepAudio()
+  startKeepTone()
+  if (isLiveFlow(snap ? snap.flow : 'idle')) ensureKeepAlive()
   const target = ev.target as HTMLElement | null
   if (!target || !target.closest) return
   const keyEl = target.closest('[data-key]') as HTMLElement | null
@@ -888,6 +1036,7 @@ function paint(): void {
   const root = document.getElementById('app')
   if (!root) return
   bindApp()
+  syncKeepAlive()
 
   if (!SUPABASE_URL || !ANON_KEY) {
     root.innerHTML =
@@ -1032,6 +1181,20 @@ async function loop(): Promise<void> {
   paint()
 }
 
+function onWatchResume(): void {
+  if (document.visibilityState === 'hidden') return
+  const stored = readStoredSnap()
+  if (stored) adoptSnap(stored)
+  if (keepWanted || isLiveFlow(snap ? snap.flow : 'idle')) ensureKeepAlive()
+  paint()
+  void loop()
+}
+
+document.addEventListener('visibilitychange', onWatchResume)
+window.addEventListener('pageshow', onWatchResume)
+window.addEventListener('focus', onWatchResume)
+window.addEventListener('pagehide', rememberSnap)
+
 bindApp()
 if (pairCode) {
   connectRelay()
@@ -1039,6 +1202,7 @@ if (pairCode) {
   void pullViaRelayFetch()
 }
 if (auth) connectLiveSocket()
+if (isLiveFlow(snap ? snap.flow : 'idle')) ensureKeepAlive()
 paint()
 void loop()
 window.setInterval(function () {
