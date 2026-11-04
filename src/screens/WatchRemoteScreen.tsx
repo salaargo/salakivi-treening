@@ -221,8 +221,10 @@ export function WatchRemoteScreen({ snap, face, needsLogin = false, onLogin }: W
   const resting = flow === 'resting' && Boolean(snap?.restEndsAt) && restLeft > 0
   const canStart = flow === 'ready' || (flow === 'resting' && restLeft <= 0)
   const showTehtud = flow === 'active'
-  const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'pick'
+  const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'sauna'
   const canPickPair = Boolean(snap) && (flow === 'ready' || flow === 'resting')
+  const pickWaiting =
+    flow === 'pick' && !(snap?.pairChoices && snap.pairChoices.length) && !snap?.exerciseName
 
   if (needsLogin) {
     return (
@@ -296,7 +298,7 @@ export function WatchRemoteScreen({ snap, face, needsLogin = false, onLogin }: W
                 Tehtud
               </button>
             )}
-            {flow === 'pick' && <p className="watch-wait">Vali harjutus telefonis</p>}
+            {pickWaiting && <p className="watch-wait">Vali harjutus telefonis</p>}
             {flow === 'sauna' && (
               <p className="btn btn-tehtud-lg watch-start watch-sauna" aria-live="polite">
                 Sauna

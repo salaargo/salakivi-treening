@@ -365,6 +365,7 @@ export type RankedSnapshot = {
   seq?: number
   at?: number
   session?: LiveSession
+  pairChoices?: { slot: number; name: string; left: number; weightKg?: number }[]
 }
 
 function snapshotRev(snap: RankedSnapshot | null | undefined): number {
@@ -373,6 +374,25 @@ function snapshotRev(snap: RankedSnapshot | null | undefined): number {
 
 function snapshotSets(snap: RankedSnapshot | null | undefined): number {
   return completedSetCount(snap?.session?.log)
+}
+
+function isWorkingFlow(flow?: LiveSession['flow']): boolean {
+  return flow === 'ready' || flow === 'active' || flow === 'resting'
+}
+
+/** Telefoni uus harjutusvalik — mitte juba lõpetatud paar, mis veel ready'na tiksub. */
+function incomingHasOpenSelection(incoming: RankedSnapshot, current: RankedSnapshot): boolean {
+  const session = incoming.session
+  const selected = session?.selected ?? []
+  if (session && selected.length > 0) {
+    const log = current.session?.log ?? session.log
+    return selected.some((index) => {
+      const ex = session.exercises[index]
+      if (!ex) return false
+      return !isExerciseDone(log, ex.id)
+    })
+  }
+  return Boolean(incoming.pairChoices && incoming.pairChoices.length > 0)
 }
 
 /**
@@ -396,6 +416,16 @@ export function snapshotShouldReplace(
   if (inEpoch !== curEpoch) {
     if (incoming.dateKey === current.dateKey && inSets < curSets) return false
     return inEpoch > curEpoch
+  }
+
+  if (
+    incoming.dateKey === current.dateKey &&
+    isWorkingFlow(incoming.flow) &&
+    current.flow === 'pick' &&
+    incomingHasOpenSelection(incoming, current) &&
+    inSets + 1 >= curSets
+  ) {
+    return true
   }
 
   if (inSets !== curSets) return inSets > curSets

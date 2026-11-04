@@ -712,6 +712,7 @@ export function WorkoutScreen({
   function toggleSelect(index: number) {
     const exercise = liveExercises[index]
     if (!exercise || isExerciseDone(dayLog, exercise.id)) return
+    bumpSessionRev()
     setSelected((prev) => {
       if (prev.includes(index)) return prev.filter((i) => i !== index)
       if (prev.length >= 2) return [prev[1], index]

@@ -356,7 +356,9 @@ function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (incoming.flow === 'idle' && snap && isLiveFlow(snap.flow) && incoming.dateKey === snap.dateKey) {
     return false
   }
-  if (Date.now() < localHoldUntil && snap) {
+  const incomingWorking =
+    incoming.flow === 'ready' || incoming.flow === 'active' || incoming.flow === 'resting'
+  if (Date.now() < localHoldUntil && snap && !(snap.flow === 'pick' && incomingWorking)) {
     const sameWork =
       (incoming.session?.rev ?? 0) === (snap.session?.rev ?? 0) &&
       incoming.flow !== 'sauna' &&
@@ -764,6 +766,19 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
     if (rpc.ok) return
   }
   if (!auth) return
+  const existingRes = await api(
+    '/rest/v1/live_remote?user_id=eq.' + encodeURIComponent(auth.user_id) + '&select=snap',
+    { method: 'GET' },
+    auth.access_token,
+  )
+  if (existingRes.ok) {
+    const rows = (await existingRes.json()) as { snap?: LiveSnapshot }[]
+    const existing = rows[0]?.snap
+    if (existing && existing.v === 1 && !snapshotShouldReplace(next, existing)) {
+      adoptSnap(existing)
+      return
+    }
+  }
   const body = {
     user_id: auth.user_id,
     snap: next,
@@ -822,7 +837,7 @@ function pairFromSnap(
   current: LiveSnapshot,
 ): { slot: number; name: string; left: number; weightKg?: number }[] {
   let pair: { slot: number; name: string; left: number; weightKg?: number }[] = []
-  if (current.pairChoices && current.pairChoices.length >= 2) pair = current.pairChoices
+  if (current.pairChoices && current.pairChoices.length >= 1) pair = current.pairChoices
   else if (current.exerciseName && current.otherName) {
     pair = [
       { slot: 0, name: current.exerciseName, left: current.remainingSets || 0, weightKg: current.weightKg },
@@ -1091,7 +1106,7 @@ function paint(): void {
     parts.push('<p class="clock" id="kell-clock">' + formatClock(left) + '</p>')
   }
 
-  if (snap && flow !== 'idle' && flow !== 'pick' && flow !== 'sauna') {
+  if (snap && flow !== 'idle' && flow !== 'sauna') {
     pair.forEach(function (item) {
       const on = item.slot === (snap && snap.activeSlot != null ? snap.activeSlot : 0)
       parts.push(
@@ -1126,7 +1141,9 @@ function paint(): void {
   if (showTehtud) {
     parts.push('<button class="tehtud" id="kell-tehtud" type="button">Tehtud</button>')
   }
-  if (flow === 'pick') parts.push('<p class="wait">Vali harjutus telefonis</p>')
+  if (flow === 'pick' && pair.length === 0 && !(snap && snap.exerciseName)) {
+    parts.push('<p class="wait">Vali harjutus telefonis</p>')
+  }
   if (flow === 'sauna') parts.push('<p class="start sauna-mark">Sauna</p>')
   if (!snap || flow === 'idle') {
     parts.push('<p class="title">Salakivi kell</p>')

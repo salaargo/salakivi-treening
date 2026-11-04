@@ -80,6 +80,12 @@ export function snapshotIsAhead(
 ): boolean {
   if (!incoming?.session || incoming.session.v !== 2) return false
   if (incoming.flow === 'idle') return false
+  if (
+    incoming.flow === 'pick' &&
+    (localFlow === 'ready' || localFlow === 'active' || localFlow === 'resting')
+  ) {
+    return false
+  }
   const inSets = completedSetCount(incoming.session.log)
   if (inSets < localCompleted) return false
   const inRev = incoming.session.rev ?? 0
