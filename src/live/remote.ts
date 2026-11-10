@@ -88,6 +88,12 @@ export function snapshotIsAhead(
   }
   const inSets = completedSetCount(incoming.session.log)
   if (inSets < localCompleted) return false
+  if (
+    localFlow === 'pick' &&
+    (incoming.flow === 'ready' || incoming.flow === 'active' || incoming.flow === 'resting')
+  ) {
+    return true
+  }
   const inRev = incoming.session.rev ?? 0
   if (inRev > localRev) return true
   if (inSets > localCompleted) return true
@@ -260,7 +266,7 @@ function schedulePersist(snap: LiveSnapshot): void {
     const next = pendingPersist
     pendingPersist = null
     if (next) void persistCloud(next)
-  }, 400)
+  }, 250)
 }
 
 function flushPersist(): void {
@@ -347,7 +353,9 @@ export async function connectLiveRemote(userId: string | null): Promise<void> {
     const env = payload.payload
     if (env?.kind === 'snap' || env?.kind === 'cmd') emit(env)
   })
-  await live.subscribe()
+  await live.subscribe((status) => {
+    if (status === 'SUBSCRIBED') void pullRemoteSnapshot(userId)
+  })
   supabaseChannel = channel
   void pullRemoteSnapshot(userId)
 }
@@ -424,7 +432,12 @@ export function dispatchWatchCommand(
     return
   }
   const snap = getLatestLiveSnapshot()
-  if (snap?.session && snap.flow !== 'sauna' && snap.flow !== 'idle' && snap.flow !== 'pick') {
+  if (
+    snap?.session &&
+    snap.flow !== 'sauna' &&
+    snap.flow !== 'idle' &&
+    (snap.flow !== 'pick' || type === 'start')
+  ) {
     const next = applySessionCommand(snap.session, type, Date.now(), extra)
     if (next !== snap.session) {
       sendCommand(type, { rev: next.rev, slot: extra?.slot })

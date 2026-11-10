@@ -207,7 +207,9 @@ function takeAuthFromUnknown(value: unknown): void {
     connectLiveSocket()
   }
   const maybeSnap = rec.snap as LiveSnapshot | undefined
-  if (maybeSnap && maybeSnap.v === 1) adoptSnap(maybeSnap)
+  if (maybeSnap && maybeSnap.v === 1) {
+    if (!(snap && snap.session && !maybeSnap.session)) adoptSnap(maybeSnap)
+  }
   if (rec.payload) takeAuthFromUnknown(rec.payload)
 }
 
@@ -349,6 +351,7 @@ function syncKeepAlive(): void {
 
 function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (!incoming || incoming.v !== 1) return false
+  if (snap?.session && !incoming.session) return false
   if (isLiveFlow(incoming.flow) && (!snap || snap.flow === 'idle' || snap.flow === 'sauna')) {
     snap = incoming
     lastPaintKey = ''
@@ -599,7 +602,7 @@ function ingestNtfyBody(text: string): void {
 }
 
 async function pullViaRelayFetch(): Promise<void> {
-  if (!pairCode) return
+  if (!pairCode || auth) return
   try {
     const polled = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?poll=1&since=all')
     if (polled.ok) ingestNtfyBody(await polled.text())
@@ -671,7 +674,7 @@ async function pullSnap(): Promise<void> {
   if (pairCode) {
     connectRelay()
     connectPairSocket()
-    await pullViaRelayFetch()
+    if (!auth) await pullViaRelayFetch()
   }
   if (pairCode && !useRpc) {
     const ok = await pullViaRpc()
@@ -1210,7 +1213,7 @@ async function loop(): Promise<void> {
   if (pairCode) {
     connectRelay()
     connectPairSocket()
-    void pullViaRelayFetch()
+    if (!auth) void pullViaRelayFetch()
   }
   if (auth) connectLiveSocket()
   paint()

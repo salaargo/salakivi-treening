@@ -184,7 +184,8 @@ function slimSnap(snap: LiveSnapshot | null): Record<string, unknown> | null {
 export async function publishWatchPairAuth(token: string, session: Session): Promise<void> {
   if (!token || !session.access_token) return
   const headers = { 'Content-Type': 'text/plain' }
-  const snap = slimSnap(getLatestLiveSnapshot())
+  const latest = getLatestLiveSnapshot()
+  const snap = latest?.session ? null : slimSnap(latest)
   const withSnap = JSON.stringify({ ...authPayload(session), snap })
   const res = await fetch(watchRelayUrl(token), { method: 'POST', body: withSnap, headers })
   if (res.ok) return

@@ -407,6 +407,7 @@ export function snapshotShouldReplace(
 ): boolean {
   if (!incoming || incoming.v !== 1) return false
   if (!current) return true
+  if (current.session && !incoming.session) return false
 
   const inSets = snapshotSets(incoming)
   const curSets = snapshotSets(current)

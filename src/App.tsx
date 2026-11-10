@@ -248,7 +248,15 @@ export default function App() {
     sendCommand('sync')
     const id = window.setInterval(() => {
       void pullRemoteSnapshot(userId)
-    }, 4000)
+    }, 600)
+    return () => window.clearInterval(id)
+  }, [watchMode, userId])
+
+  useEffect(() => {
+    if (watchMode || !userId) return
+    const id = window.setInterval(() => {
+      void pullRemoteSnapshot(userId)
+    }, 700)
     return () => window.clearInterval(id)
   }, [watchMode, userId])
 

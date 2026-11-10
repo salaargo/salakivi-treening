@@ -32,7 +32,7 @@ function weightFromSession(snap: LiveSnapshot, slot: number): number | undefined
 
 function pairFromSnap(snap: LiveSnapshot): { slot: number; name: string; left: number; weightKg?: number }[] {
   let pair: { slot: number; name: string; left: number; weightKg?: number }[] = []
-  if (snap.pairChoices && snap.pairChoices.length >= 2) pair = snap.pairChoices
+  if (snap.pairChoices && snap.pairChoices.length >= 1) pair = snap.pairChoices
   else {
     const fromParts = snap.remainingParts?.filter((part) => part.left >= 0) ?? []
     if (fromParts.length >= 2) {
@@ -82,7 +82,7 @@ function WatchPairPicker({
   canSelect: boolean
 }) {
   const pair = pairFromSnap(snap)
-  if (pair.length < 2) return null
+  if (pair.length < 1) return null
   const current = snap.activeSlot ?? 0
   return (
     <div className="watch-pair-list">
@@ -118,7 +118,7 @@ function WatchPairPicker({
 }
 
 function WatchRemaining({ snap }: { snap: LiveSnapshot }) {
-  if (pairFromSnap(snap).length >= 2) return null
+  if (pairFromSnap(snap).length >= 1) return null
   const parts = remainingFromSnap(snap)
   if (!parts.length) return null
   return (

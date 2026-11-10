@@ -203,7 +203,9 @@ export function WorkoutScreen({
   const [showSetMenu, setShowSetMenu] = useState(false)
   const [addPink, setAddPink] = useState<AddPinkForm | null>(null)
   const [confirm, setConfirm] = useState<null | 'abort-set' | 'abort-exercise'>(null)
-  const keepAlive = Boolean(plan && (flow === 'ready' || flow === 'active' || flow === 'resting'))
+  const keepAlive = Boolean(
+    plan && (flow === 'pick' || flow === 'ready' || flow === 'active' || flow === 'resting'),
+  )
   useScreenWakeLock(keepAlive)
   useWorkoutKeepAlive(keepAlive)
 
@@ -480,8 +482,7 @@ export function WorkoutScreen({
 
   useEffect(() => {
     if (isWatchMode()) return
-    const publish = (evenIfHidden = false) => {
-      if (document.visibilityState === 'hidden' && !evenIfHidden) return
+    const publish = (_evenIfHidden = false) => {
       const other =
         selected.length === 2 ? liveExercises[selected[activeSlot === 0 ? 1 : 0]] : undefined
       const session: LiveSession | undefined = log
@@ -554,7 +555,6 @@ export function WorkoutScreen({
     publish()
     const id = window.setInterval(publish, 400)
     const catchUpFromWatch = () => {
-      if (document.visibilityState === 'hidden') return
       void pullRemoteSnapshot().then((snap) => {
         if (
           snap?.dateKey === dateKey &&
@@ -571,7 +571,7 @@ export function WorkoutScreen({
       })
     }
     catchUpFromWatch()
-    const catchId = window.setInterval(catchUpFromWatch, 800)
+    const catchId = window.setInterval(catchUpFromWatch, 600)
     const onWake = () => {
       if (document.visibilityState === 'hidden') return
       catchUpFromWatch()
