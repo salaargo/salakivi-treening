@@ -239,6 +239,7 @@ export function WorkoutScreen({
   const commandRef = useRef({
     flow: 'pick' as Flow,
     onStart: () => {},
+    onBeginStart: () => false as boolean,
     onTehtud: () => {},
     onSkipRest: () => {},
     onFinishEarly: () => {},
@@ -665,6 +666,9 @@ export function WorkoutScreen({
         return
       }
       let applied = false
+      if (cmd.type === 'start' && handlers.flow === 'pick') {
+        applied = handlers.onBeginStart()
+      }
       if (cmd.type === 'start' && (handlers.flow === 'ready' || handlers.flow === 'resting')) {
         handlers.onStart()
         applied = true
@@ -725,6 +729,15 @@ export function WorkoutScreen({
     bumpSessionRev()
     setActiveSlot(0)
     setFlow('ready')
+  }
+
+  function beginAndStartFromWatch(): boolean {
+    if (selected.length === 0) return false
+    bumpSessionRev()
+    setActiveSlot(0)
+    recordStart()
+    setFlow('active')
+    return true
   }
 
   function recordStart() {
@@ -1051,6 +1064,7 @@ export function WorkoutScreen({
   commandRef.current = {
     flow,
     onStart: onStartPointerUp,
+    onBeginStart: beginAndStartFromWatch,
     onTehtud: handleTehtud,
     onSkipRest: endRest,
     onFinishEarly: handleFinishEarly,

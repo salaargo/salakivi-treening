@@ -277,6 +277,7 @@ export function applySessionCommand(
   }
   if (type === 'start') {
     let next = session
+    if (next.flow === 'pick' && next.selected.length > 0) next = { ...next, flow: 'ready' }
     if (next.flow === 'resting') next = endRest(next)
     if (next.flow !== 'ready') return session
     return withRev(session, recordStart(next, now))
@@ -418,21 +419,23 @@ export function snapshotShouldReplace(
     return inEpoch > curEpoch
   }
 
-  if (
-    incoming.dateKey === current.dateKey &&
-    isWorkingFlow(incoming.flow) &&
-    current.flow === 'pick' &&
-    incomingHasOpenSelection(incoming, current) &&
-    inSets + 1 >= curSets
-  ) {
-    return true
-  }
-
   if (inSets !== curSets) return inSets > curSets
 
   const inRev = snapshotRev(incoming)
   const curRev = snapshotRev(current)
+  const sameDay = incoming.dateKey === current.dateKey
+  if (
+    sameDay &&
+    current.flow === 'pick' &&
+    isWorkingFlow(incoming.flow) &&
+    incomingHasOpenSelection(incoming, current)
+  ) {
+    return true
+  }
   if (inRev !== curRev) return inRev > curRev
+  if (sameDay && current.flow === 'pick' && isWorkingFlow(incoming.flow) && !incomingHasOpenSelection(incoming, current)) {
+    return false
+  }
 
   const dt = (incoming.at ?? 0) - (current.at ?? 0)
   if (dt > 80) return true

@@ -215,6 +215,10 @@ function isLiveFlow(flow?: string): boolean {
   return flow === 'pick' || flow === 'ready' || flow === 'active' || flow === 'resting'
 }
 
+function isStoppedFlow(flow?: string): boolean {
+  return !flow || flow === 'idle' || flow === 'sauna'
+}
+
 function readStoredSnap(): LiveSnapshot | null {
   try {
     const raw = localStorage.getItem(SNAP_STORE)
@@ -358,7 +362,7 @@ function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   }
   const incomingWorking =
     incoming.flow === 'ready' || incoming.flow === 'active' || incoming.flow === 'resting'
-  if (Date.now() < localHoldUntil && snap && !(snap.flow === 'pick' && incomingWorking)) {
+  if (Date.now() < localHoldUntil && snap && snap.flow !== 'pick' && incomingWorking) {
     const sameWork =
       (incoming.session?.rev ?? 0) === (snap.session?.rev ?? 0) &&
       incoming.flow !== 'sauna' &&
@@ -1012,7 +1016,20 @@ async function publishCommand(
 }
 
 async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): Promise<void> {
-  if (!snap || snap.flow === 'idle' || snap.flow === 'sauna' || snap.flow === 'pick') return
+  if (isStoppedFlow(snap ? snap.flow : undefined)) return
+  const pickCanStart =
+    snap &&
+    snap.flow === 'pick' &&
+    type === 'start' &&
+    ((snap.session && snap.session.selected.length > 0) || pairFromSnap(snap).length > 0)
+  if (snap && snap.flow === 'pick' && !pickCanStart) return
+  try {
+    await pullSnap()
+  } catch {
+    /* võrk */
+  }
+  if (isStoppedFlow(snap ? snap.flow : undefined) || !snap) return
+  if (snap.flow === 'pick' && type !== 'start') return
   localHoldUntil = Date.now() + 8000
   connectLiveSocket()
   if (snap.session) {
@@ -1067,9 +1084,10 @@ function paint(): void {
   const flow = snap ? snap.flow : 'idle'
   const left = snap && snap.restEndsAt ? restLeft(snap.restEndsAt) : 0
   const resting = flow === 'resting' && left > 0
-  const canStart = flow === 'ready' || (flow === 'resting' && left <= 0)
-  const showTehtud = flow === 'active'
   const pair = snap ? pairFromSnap(snap) : []
+  const canStart =
+    flow === 'ready' || (flow === 'resting' && left <= 0) || (flow === 'pick' && pair.length > 0)
+  const showTehtud = flow === 'active'
   const paintKey = [
     flow,
     snap && snap.exerciseName,
@@ -1124,7 +1142,7 @@ function paint(): void {
           '</strong></span></button>',
       )
     })
-    if (pair.length < 2 && snap.exerciseName) {
+    if (pair.length === 0 && snap.exerciseName) {
       parts.push(
         '<p class="wait">' +
           esc(snap.exerciseName) +
@@ -1200,10 +1218,7 @@ async function loop(): Promise<void> {
 
 function onWatchResume(): void {
   if (document.visibilityState === 'hidden') return
-  const stored = readStoredSnap()
-  if (stored) adoptSnap(stored)
   if (keepWanted || isLiveFlow(snap ? snap.flow : 'idle')) ensureKeepAlive()
-  paint()
   void loop()
 }
 
@@ -1224,7 +1239,7 @@ paint()
 void loop()
 window.setInterval(function () {
   void loop()
-}, 800)
+}, 500)
 window.setInterval(function () {
   if (snap && snap.flow === 'resting') paint()
 }, 250)

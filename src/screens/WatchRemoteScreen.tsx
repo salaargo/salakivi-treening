@@ -219,7 +219,10 @@ export function WatchRemoteScreen({ snap, face, needsLogin = false, onLogin }: W
   }, [held, snap?.flow])
 
   const resting = flow === 'resting' && Boolean(snap?.restEndsAt) && restLeft > 0
-  const canStart = flow === 'ready' || (flow === 'resting' && restLeft <= 0)
+  const canStart =
+    flow === 'ready' ||
+    (flow === 'resting' && restLeft <= 0) ||
+    (flow === 'pick' && Boolean(snap?.pairChoices?.length || snap?.exerciseName))
   const showTehtud = flow === 'active'
   const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'sauna'
   const canPickPair = Boolean(snap) && (flow === 'ready' || flow === 'resting')
