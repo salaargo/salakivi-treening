@@ -2,6 +2,7 @@ import type { RealtimeChannel, Session } from '@supabase/supabase-js'
 import { getSupabase, isCloudEnabled } from './lib/supabase'
 import { getLatestLiveSnapshot, type LiveSnapshot } from './live/remote'
 import { watchUrl } from './orientation'
+import { todayKey } from './storage'
 
 const LOCAL_PAIR_KEY = 'salakivi-watch-pair-v1'
 
@@ -185,19 +186,24 @@ export async function publishWatchPairAuth(token: string, session: Session): Pro
   if (!token || !session.access_token) return
   const headers = { 'Content-Type': 'text/plain' }
   const latest = getLatestLiveSnapshot()
-  const snap = latest?.session ? null : slimSnap(latest)
-  const withSnap = JSON.stringify({ ...authPayload(session), snap })
+  const today = todayKey()
+  const todaySnap = latest && latest.dateKey === today ? latest : null
+  const snap = todaySnap?.session ? null : slimSnap(todaySnap)
+  const wake = todaySnap
+    ? { dateKey: todaySnap.dateKey, flow: todaySnap.flow, epoch: todaySnap.epoch, seq: todaySnap.seq }
+    : { dateKey: today }
+  const withSnap = JSON.stringify({ ...authPayload(session), snap, wake })
   const res = await fetch(watchRelayUrl(token), { method: 'POST', body: withSnap, headers })
   if (res.ok) return
   await fetch(watchRelayUrl(token), {
     method: 'POST',
-    body: JSON.stringify(authPayload(session)),
+    body: JSON.stringify({ ...authPayload(session), wake }),
     headers,
   })
   if (snap) {
     await fetch(watchRelayUrl(token), {
       method: 'POST',
-      body: JSON.stringify({ snap }),
+      body: JSON.stringify({ snap, wake }),
       headers,
     })
   }
@@ -235,7 +241,13 @@ export function startWatchPairBeacon(userId: string): () => void {
       const { data } = await supabase.auth.getSession()
       const session = data.session
       if (!session?.access_token) return
-      const payload = { ...authPayload(session), snap: getLatestLiveSnapshot() }
+      const latest = getLatestLiveSnapshot()
+      const today = todayKey()
+      const snap = latest && latest.dateKey === today ? latest : null
+      const wake = snap
+        ? { dateKey: snap.dateKey, flow: snap.flow, epoch: snap.epoch, seq: snap.seq }
+        : { dateKey: today }
+      const payload = { ...authPayload(session), snap, wake }
       try {
         await channel?.send({ type: 'broadcast', event: 'auth', payload })
       } catch {

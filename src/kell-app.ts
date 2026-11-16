@@ -1,4 +1,9 @@
-import { applySessionCommand, sessionToSnapshot, snapshotShouldReplace } from './live/sessionEngine'
+import {
+  applySessionCommand,
+  sessionToSnapshot,
+  snapshotDateRank,
+  snapshotShouldReplace,
+} from './live/sessionEngine'
 import type { LiveSnapshot } from './live/remote'
 import type { LiveSession } from './live/sessionEngine'
 
@@ -99,6 +104,42 @@ function saveAuth(next: KellAuth | null): void {
   }
 }
 
+function localDateKey(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return y + '-' + m + '-' + day
+}
+
+function jwtExpMs(token: string): number {
+  try {
+    const part = token.split('.')[1]
+    if (!part) return 0
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((part.length + 3) % 4)
+    const raw = atob(padded)
+    let json = ''
+    for (let i = 0; i < raw.length; i++) json += raw.charAt(i)
+    const payload = JSON.parse(json) as { exp?: number }
+    return payload.exp ? payload.exp * 1000 : 0
+  } catch {
+    return 0
+  }
+}
+
+function jwtExpired(token: string): boolean {
+  const exp = jwtExpMs(token)
+  return Boolean(exp && exp < Date.now() + 20000)
+}
+
+function storedSnapIsFresh(value: LiveSnapshot | null): boolean {
+  if (!value || value.v !== 1) return false
+  if (value.flow === 'idle' || value.flow === 'sauna') return false
+  if (value.dateKey && value.dateKey !== localDateKey()) return false
+  if (value.at && Date.now() - value.at > 18 * 3600 * 1000) return false
+  return isLiveFlow(value.flow)
+}
+
 let pinDraft = ''
 let pairCode = pairFromUrl()
 let auth: KellAuth | null = authFromUrl() ?? readAuth()
@@ -116,6 +157,8 @@ let localHoldUntil = 0
 let lastPaintKey = ''
 let liveWs: WebSocket | null = null
 let liveJoined = false
+let liveGen = 0
+let lastRefreshAt = 0
 let pendingLive: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapshot }[] = []
 let keepAudio: HTMLAudioElement | null = null
 let keepCtx: AudioContext | null = null
@@ -182,6 +225,20 @@ async function refreshIfNeeded(): Promise<boolean> {
   return true
 }
 
+async function ensureFreshAuth(): Promise<boolean> {
+  if (!auth) return false
+  if (!jwtExpired(auth.access_token)) return true
+  if (Date.now() - lastRefreshAt < 4000) return true
+  lastRefreshAt = Date.now()
+  const ok = await refreshIfNeeded()
+  if (ok) {
+    reconnectLiveSocket()
+    return true
+  }
+  clearAuth()
+  return false
+}
+
 function liveFromState(state: unknown): LiveSnapshot | null {
   if (!state || typeof state !== 'object') return null
   const found = (state as { __live?: LiveSnapshot }).__live
@@ -196,20 +253,36 @@ function takeAuthFromUnknown(value: unknown): void {
     r?: string
     payload?: unknown
     snap?: LiveSnapshot
+    wake?: { dateKey?: string; flow?: string; epoch?: number; seq?: number }
   }
   if (rec.a && rec.u) {
-    saveAuth({
-      access_token: rec.a,
-      refresh_token: rec.r || '',
-      user_id: rec.u,
-      email: '',
-    })
-    connectLiveSocket()
+    const incomingExp = jwtExpMs(rec.a)
+    const currentExp = auth ? jwtExpMs(auth.access_token) : 0
+    const olderJwt = Boolean(auth && incomingExp && currentExp && incomingExp + 5000 < currentExp)
+    if (!olderJwt) {
+      const tokenChanged = !auth || auth.access_token !== rec.a
+      saveAuth({
+        access_token: rec.a,
+        refresh_token: rec.r || auth?.refresh_token || '',
+        user_id: rec.u,
+        email: '',
+      })
+      if (tokenChanged) reconnectLiveSocket()
+      else connectLiveSocket()
+    }
+  }
+  const wake = rec.wake
+  if (wake && wake.dateKey && snap && snapshotDateRank(wake.dateKey, snap.dateKey) > 0) {
+    snap = null
+    lastPaintKey = ''
+    try {
+      localStorage.removeItem(SNAP_STORE)
+    } catch {
+      /* ignore */
+    }
   }
   const maybeSnap = rec.snap as LiveSnapshot | undefined
-  if (maybeSnap && maybeSnap.v === 1) {
-    if (!(snap && snap.session && !maybeSnap.session)) adoptSnap(maybeSnap)
-  }
+  if (maybeSnap && maybeSnap.v === 1) adoptSnap(maybeSnap)
   if (rec.payload) takeAuthFromUnknown(rec.payload)
 }
 
@@ -351,6 +424,17 @@ function syncKeepAlive(): void {
 
 function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (!incoming || incoming.v !== 1) return false
+  if (incoming.dateKey && incoming.dateKey < localDateKey()) return false
+  const dayCmp = snapshotDateRank(incoming.dateKey, snap?.dateKey)
+  if (dayCmp < 0) return false
+  if (dayCmp > 0) {
+    snap = incoming
+    lastPaintKey = ''
+    errorText = ''
+    rememberSnap()
+    syncKeepAlive()
+    return true
+  }
   if (snap?.session && !incoming.session) return false
   if (isLiveFlow(incoming.flow) && (!snap || snap.flow === 'idle' || snap.flow === 'sauna')) {
     snap = incoming
@@ -383,7 +467,7 @@ function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
 
 if (!snap) {
   const storedBoot = readStoredSnap()
-  if (storedBoot) snap = storedBoot
+  if (storedSnapIsFresh(storedBoot)) snap = storedBoot
 }
 
 function connectPairSocket(): void {
@@ -487,11 +571,46 @@ function sendLive(env: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapsho
   flushLive()
 }
 
+function closeLiveSocket(): void {
+  liveGen += 1
+  liveJoined = false
+  if (liveHbTimer) {
+    window.clearInterval(liveHbTimer)
+    liveHbTimer = 0
+  }
+  const old = liveWs
+  liveWs = null
+  if (old) {
+    try {
+      old.onclose = null
+      old.onerror = null
+      old.onmessage = null
+      old.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function reconnectLiveSocket(): void {
+  closeLiveSocket()
+  connectLiveSocket()
+}
+
+function clearAuth(): void {
+  saveAuth(null)
+  closeLiveSocket()
+  closeRelay()
+  useRpc = false
+  errorText = ''
+}
+
 function connectLiveSocket(): void {
   if (!auth || !SUPABASE_URL || !ANON_KEY) return
   if (liveWs && (liveWs.readyState === WebSocket.CONNECTING || liveWs.readyState === WebSocket.OPEN)) return
   const host = SUPABASE_URL.replace(/^https:/, 'wss:')
   const url = host + '/realtime/v1/websocket?apikey=' + encodeURIComponent(ANON_KEY) + '&vsn=1.0.0'
+  const gen = liveGen
   try {
     liveWs = new WebSocket(url)
   } catch {
@@ -499,7 +618,7 @@ function connectLiveSocket(): void {
   }
   liveJoined = false
   liveWs.onopen = function () {
-    if (!liveWs || !auth) return
+    if (gen !== liveGen || !liveWs || !auth) return
     liveWs.send(
       JSON.stringify({
         topic: liveTopic(),
@@ -519,15 +638,17 @@ function connectLiveSocket(): void {
     )
     if (liveHbTimer) window.clearInterval(liveHbTimer)
     liveHbTimer = window.setInterval(function () {
-      if (!liveWs || liveWs.readyState !== WebSocket.OPEN) return
+      if (gen !== liveGen || !liveWs || liveWs.readyState !== WebSocket.OPEN) return
       liveWs.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++wsRef) }))
     }, 25000)
     window.setTimeout(function () {
+      if (gen !== liveGen) return
       liveJoined = true
       flushLive()
     }, 500)
   }
   liveWs.onmessage = function (ev) {
+    if (gen !== liveGen) return
     try {
       const raw = typeof ev.data === 'string' ? ev.data : ''
       const msg = JSON.parse(raw) as {
@@ -535,6 +656,13 @@ function connectLiveSocket(): void {
         payload?: { event?: string; status?: string; payload?: { kind?: string; snap?: LiveSnapshot } }
       }
       const payload = msg.payload
+      if (msg.event === 'phx_reply' && payload && payload.status === 'error') {
+        liveJoined = false
+        void ensureFreshAuth().then(function (ok) {
+          if (ok) reconnectLiveSocket()
+        })
+        return
+      }
       if (msg.event === 'phx_reply' && payload && payload.status !== 'error') {
         liveJoined = true
         flushLive()
@@ -548,12 +676,14 @@ function connectLiveSocket(): void {
     }
   }
   liveWs.onclose = function () {
+    if (gen !== liveGen) return
     liveWs = null
     liveJoined = false
     if (liveHbTimer) window.clearInterval(liveHbTimer)
     window.setTimeout(connectLiveSocket, 2500)
   }
   liveWs.onerror = function () {
+    if (gen !== liveGen) return
     try {
       liveWs?.close()
     } catch {
@@ -564,11 +694,23 @@ function connectLiveSocket(): void {
 
 let relayEs: EventSource | null = null
 
+function closeRelay(): void {
+  if (relayEs) {
+    try {
+      relayEs.close()
+    } catch {
+      /* ignore */
+    }
+    relayEs = null
+  }
+}
+
 function connectRelay(): void {
   if (!pairCode) return
   if (relayEs && relayEs.readyState !== EventSource.CLOSED) return
   try {
-    relayEs = new EventSource('https://ntfy.sh/skw-' + pairCode + '/sse?since=all')
+    const since = auth ? '' : '?since=30m'
+    relayEs = new EventSource('https://ntfy.sh/skw-' + pairCode + '/sse' + since)
   } catch {
     return
   }
@@ -602,9 +744,9 @@ function ingestNtfyBody(text: string): void {
 }
 
 async function pullViaRelayFetch(): Promise<void> {
-  if (!pairCode || auth) return
+  if (!pairCode) return
   try {
-    const polled = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?poll=1&since=all')
+    const polled = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?poll=1&since=30m')
     if (polled.ok) ingestNtfyBody(await polled.text())
     if (auth) return
   } catch {
@@ -615,7 +757,7 @@ async function pullViaRelayFetch(): Promise<void> {
     ac.abort()
   }, 2800)
   try {
-    const res = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?since=all', { signal: ac.signal })
+    const res = await fetch('https://ntfy.sh/skw-' + pairCode + '/json?since=30m', { signal: ac.signal })
     if (!res.ok || !res.body) return
     const reader = res.body.getReader()
     const dec = new TextDecoder()
@@ -671,6 +813,7 @@ async function pullViaRpc(): Promise<boolean> {
 }
 
 async function pullSnap(): Promise<void> {
+  if (auth) await ensureFreshAuth()
   if (pairCode) {
     connectRelay()
     connectPairSocket()
@@ -698,8 +841,14 @@ async function pullSnap(): Promise<void> {
     { method: 'GET' },
     token,
   )
-  if (liveRes.status === 401 && (await refreshIfNeeded())) {
-    await pullSnap()
+  if (liveRes.status === 401) {
+    if (await refreshIfNeeded()) {
+      reconnectLiveSocket()
+      await pullSnap()
+      return
+    }
+    clearAuth()
+    await pullViaRelayFetch()
     return
   }
   if (liveRes.ok) {
@@ -857,6 +1006,35 @@ function pairFromSnap(
   })
 }
 
+function resetPairing(keepPin: boolean): void {
+  clearAuth()
+  snap = null
+  lastPaintKey = ''
+  errorText = ''
+  try {
+    localStorage.removeItem(SNAP_STORE)
+  } catch {
+    /* ignore */
+  }
+  if (!keepPin) {
+    pairCode = ''
+    pinDraft = ''
+    pairWaitFrom = 0
+    try {
+      localStorage.removeItem(PAIR_KEY)
+    } catch {
+      /* ignore */
+    }
+  } else {
+    pairWaitFrom = Date.now()
+    connectRelay()
+    connectPairSocket()
+    void pullViaRelayFetch()
+  }
+  paint()
+  void loop()
+}
+
 function acceptPin(code: string): void {
   if (!/^\d{6}$/.test(code)) return
   pairCode = code
@@ -903,6 +1081,12 @@ function onAppPointer(ev: Event): void {
     } else if (pinDraft.length < 6 && /^\d$/.test(key)) pinDraft += key
     updatePinFace()
     if (pinDraft.length === 6) acceptPin(pinDraft)
+    return
+  }
+  const repairEl = target.closest('#kell-repair') as HTMLElement | null
+  if (repairEl) {
+    if (!takeTap(ev)) return
+    resetPairing(Boolean(pairCode))
     return
   }
   const startEl = target.closest('#kell-start') as HTMLElement | null
@@ -1171,6 +1355,7 @@ function paint(): void {
     parts.push(
       '<p class="sub">Hoia treeningäpp telefonis lahti. Ootan treeningu seisu…</p>',
     )
+    parts.push('<button type="button" class="ghost" id="kell-repair">Ühenda uuesti</button>')
   }
   if (errorText) parts.push('<p class="err">' + esc(errorText) + '</p>')
 
@@ -1189,16 +1374,8 @@ async function loop(): Promise<void> {
         paint()
         return
       }
-      if (pairWaitFrom && Date.now() - pairWaitFrom > 18000) {
-        errorText = 'Ei saanud ühendust. Toksa kood uuesti.'
-        pairCode = ''
-        pinDraft = ''
-        pairWaitFrom = 0
-        try {
-          localStorage.removeItem(PAIR_KEY)
-        } catch {
-          /* ignore */
-        }
+      if (pairWaitFrom && Date.now() - pairWaitFrom > 45000) {
+        errorText = 'Ei saanud ühendust. Hoia telefon lahti ja toksa kood uuesti.'
       }
       const root = document.getElementById('app')
       if (root) paintPinPad(root)
@@ -1206,6 +1383,7 @@ async function loop(): Promise<void> {
     return
   }
   try {
+    await ensureFreshAuth()
     await pullSnap()
   } catch {
     /* võrk */

@@ -396,10 +396,17 @@ function incomingHasOpenSelection(incoming: RankedSnapshot, current: RankedSnaps
   return Boolean(incoming.pairChoices && incoming.pairChoices.length > 0)
 }
 
+/** YYYY-MM-DD: uus treeningpäev võidab vana, vana ei tohi uut üle kirjutada. */
+export function snapshotDateRank(incoming?: string, current?: string): number {
+  const a = incoming && /^\d{4}-\d{2}-\d{2}$/.test(incoming) ? incoming : ''
+  const b = current && /^\d{4}-\d{2}-\d{2}$/.test(current) ? current : ''
+  if (!a || !b || a === b) return 0
+  return a > b ? 1 : -1
+}
+
 /**
- * Uus treening (kõrgem epoch) võidab alati, isegi kui seq algab 1-st.
- * Sama treeningu sees võidab kella/telefoni käskude järjekord (rev),
- * mitte seadme oma loendur ega värskem timestamp vanal seisul.
+ * Uus treeningpäev võidab alati. Sama päeva sees võidab kõrgem epoch,
+ * siis seeriad/rev — mitte seadme oma loendur ega värskem timestamp vanal seisul.
  */
 export function snapshotShouldReplace(
   incoming: RankedSnapshot | null | undefined,
@@ -407,6 +414,8 @@ export function snapshotShouldReplace(
 ): boolean {
   if (!incoming || incoming.v !== 1) return false
   if (!current) return true
+  const dayCmp = snapshotDateRank(incoming.dateKey, current.dateKey)
+  if (dayCmp !== 0) return dayCmp > 0
   if (current.session && !incoming.session) return false
 
   const inSets = snapshotSets(incoming)

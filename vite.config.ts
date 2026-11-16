@@ -45,6 +45,7 @@ function kellPlugin(mode: string): Plugin {
         const urlPath = req.url?.split('?')[0]
         if (urlPath === '/kell.html' || urlPath === '/kell.html/') {
           res.setHeader('Content-Type', 'text/html; charset=utf-8')
+          res.setHeader('Cache-Control', 'no-store')
           res.end(template())
           return
         }
@@ -52,6 +53,7 @@ function kellPlugin(mode: string): Plugin {
           try {
             const js = bundleKell(env, false)
             res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+            res.setHeader('Cache-Control', 'no-store')
             res.end(Buffer.from(js))
           } catch (err) {
             res.statusCode = 500

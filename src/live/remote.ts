@@ -5,6 +5,7 @@ import {
   applySessionCommand,
   completedSetCount,
   sessionToSnapshot,
+  snapshotDateRank,
   snapshotShouldReplace,
 } from './sessionEngine'
 
@@ -378,7 +379,8 @@ function onStorage(ev: StorageEvent): void {
 }
 
 export function publishSnapshot(snap: LiveSnapshot): void {
-  const epoch = snap.epoch ?? lastSnap?.epoch ?? Date.now()
+  const sameDay = Boolean(lastSnap?.dateKey && snap.dateKey && lastSnap.dateKey === snap.dateKey)
+  const epoch = snap.epoch ?? (sameDay ? lastSnap?.epoch : undefined) ?? Date.now()
   const stamped: LiveSnapshot = { ...snap, epoch, seq: ++publishSeq, at: Date.now() }
   const liveIncoming =
     stamped.flow === 'pick' ||
@@ -386,7 +388,8 @@ export function publishSnapshot(snap: LiveSnapshot): void {
     stamped.flow === 'active' ||
     stamped.flow === 'resting'
   const idleCurrent = !lastSnap || lastSnap.flow === 'idle' || lastSnap.flow === 'sauna'
-  if (lastSnap && !(liveIncoming && idleCurrent) && !snapshotShouldReplace(stamped, lastSnap)) return
+  const newDay = snapshotDateRank(stamped.dateKey, lastSnap?.dateKey) > 0
+  if (lastSnap && !newDay && !(liveIncoming && idleCurrent) && !snapshotShouldReplace(stamped, lastSnap)) return
   applySnap(stamped)
   getBc()?.postMessage({ kind: 'snap', snap: stamped } satisfies Envelope)
   void supabaseChannel?.send({
