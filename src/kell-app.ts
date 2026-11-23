@@ -12,6 +12,7 @@ const ANON_KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '')
 const AUTH_KEY = 'salakivi-kell-auth-v1'
 const PAIR_KEY = 'salakivi-kell-pair-v1'
 const SNAP_STORE = 'salakivi-kell-snap-v1'
+const OUTBOX_KEY = 'salakivi-kell-outbox-v1'
 const SILENT_WAV =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA'
 
@@ -20,6 +21,13 @@ interface KellAuth {
   refresh_token: string
   user_id: string
   email: string
+}
+
+interface OutboxItem {
+  id: string
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot'
+  snap: LiveSnapshot
+  cmd: { id: string; type: string; at: number; rev?: number; slot?: number }
 }
 
 function searchParams(): URLSearchParams {
@@ -160,6 +168,8 @@ let liveJoined = false
 let liveGen = 0
 let lastRefreshAt = 0
 let pendingLive: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapshot }[] = []
+let outbox: OutboxItem[] = []
+let flushBusy = false
 let keepAudio: HTMLAudioElement | null = null
 let keepCtx: AudioContext | null = null
 let keepOsc: OscillatorNode | null = null
@@ -200,6 +210,69 @@ async function api(path: string, init: RequestInit, token?: string): Promise<Res
   return fetch(SUPABASE_URL + path, {
     ...init,
     headers: { ...headers(token), ...(init.headers as Record<string, string> | undefined) },
+  })
+}
+
+function readOutbox(): OutboxItem[] {
+  try {
+    const raw = localStorage.getItem(OUTBOX_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as OutboxItem[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveOutbox(): void {
+  try {
+    if (outbox.length) localStorage.setItem(OUTBOX_KEY, JSON.stringify(outbox))
+    else localStorage.removeItem(OUTBOX_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+function postAlive(url: string, init: RequestInit): void {
+  void fetch(url, { ...init, keepalive: true }).catch(function () {})
+}
+
+function pushSnapAlive(next: LiveSnapshot): void {
+  if (useRpc && pairCode) {
+    postAlive(SUPABASE_URL + '/rest/v1/rpc/watch_push', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ pair: pairCode, next }),
+    })
+  }
+  if (!auth) return
+  const body = JSON.stringify({
+    user_id: auth.user_id,
+    snap: next,
+    updated_at: new Date().toISOString(),
+  })
+  postAlive(SUPABASE_URL + '/rest/v1/live_remote?on_conflict=user_id', {
+    method: 'POST',
+    headers: { ...headers(auth.access_token), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body,
+  })
+}
+
+function pushRelayAlive(env: { kind: 'cmd' | 'snap'; cmd?: unknown; snap?: LiveSnapshot }): void {
+  if (!pairCode) return
+  const body = JSON.stringify(env)
+  try {
+    if (typeof navigator.sendBeacon === 'function') {
+      const blob = new Blob([body], { type: 'text/plain' })
+      if (navigator.sendBeacon('https://ntfy.sh/skw-' + pairCode, blob)) return
+    }
+  } catch {
+    /* WatchOS beacon */
+  }
+  postAlive('https://ntfy.sh/skw-' + pairCode, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body,
   })
 }
 
@@ -447,15 +520,11 @@ function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (incoming.flow === 'idle' && snap && isLiveFlow(snap.flow) && incoming.dateKey === snap.dateKey) {
     return false
   }
-  const incomingWorking =
-    incoming.flow === 'ready' || incoming.flow === 'active' || incoming.flow === 'resting'
-  if (Date.now() < localHoldUntil && snap && snap.flow !== 'pick' && incomingWorking) {
-    const sameWork =
-      (incoming.session?.rev ?? 0) === (snap.session?.rev ?? 0) &&
-      incoming.flow !== 'sauna' &&
-      snap.flow !== 'idle'
-    if (sameWork && !snapshotShouldReplace(incoming, snap)) return false
-    if (sameWork && (incoming.session?.rev ?? 0) <= (snap.session?.rev ?? 0)) return false
+  if (Date.now() < localHoldUntil && snap) {
+    const inRev = incoming.session?.rev ?? 0
+    const curRev = snap.session?.rev ?? 0
+    if (inRev < curRev) return false
+    if (inRev === curRev && incoming.flow !== snap.flow) return false
   }
   if (snap && !snapshotShouldReplace(incoming, snap)) return false
   snap = incoming
@@ -469,6 +538,7 @@ if (!snap) {
   const storedBoot = readStoredSnap()
   if (storedSnapIsFresh(storedBoot)) snap = storedBoot
 }
+outbox = readOutbox()
 
 function connectPairSocket(): void {
   if (!pairCode || !SUPABASE_URL || !ANON_KEY) return
@@ -913,7 +983,7 @@ async function mergeLiveState(next: LiveSnapshot): Promise<void> {
   )
 }
 
-async function pushSnap(next: LiveSnapshot): Promise<void> {
+async function pushSnap(next: LiveSnapshot, force = false): Promise<void> {
   if (useRpc && pairCode) {
     const rpc = await api('/rest/v1/rpc/watch_push', {
       method: 'POST',
@@ -922,17 +992,19 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
     if (rpc.ok) return
   }
   if (!auth) return
-  const existingRes = await api(
-    '/rest/v1/live_remote?user_id=eq.' + encodeURIComponent(auth.user_id) + '&select=snap',
-    { method: 'GET' },
-    auth.access_token,
-  )
-  if (existingRes.ok) {
-    const rows = (await existingRes.json()) as { snap?: LiveSnapshot }[]
-    const existing = rows[0]?.snap
-    if (existing && existing.v === 1 && !snapshotShouldReplace(next, existing)) {
-      adoptSnap(existing)
-      return
+  if (!force) {
+    const existingRes = await api(
+      '/rest/v1/live_remote?user_id=eq.' + encodeURIComponent(auth.user_id) + '&select=snap',
+      { method: 'GET' },
+      auth.access_token,
+    )
+    if (existingRes.ok) {
+      const rows = (await existingRes.json()) as { snap?: LiveSnapshot }[]
+      const existing = rows[0]?.snap
+      if (existing && existing.v === 1 && !snapshotShouldReplace(next, existing)) {
+        adoptSnap(existing)
+        return
+      }
     }
   }
   const body = {
@@ -944,6 +1016,7 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
     '/rest/v1/live_remote?on_conflict=user_id',
     {
       method: 'POST',
+      keepalive: true,
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify(body),
     },
@@ -954,6 +1027,7 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
       '/rest/v1/live_remote?user_id=eq.' + encodeURIComponent(auth.user_id),
       {
         method: 'PATCH',
+        keepalive: true,
         headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({ snap: next, updated_at: body.updated_at }),
       },
@@ -964,6 +1038,7 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
         '/rest/v1/live_remote',
         {
           method: 'POST',
+          keepalive: true,
           headers: { Prefer: 'return=minimal' },
           body: JSON.stringify(body),
         },
@@ -971,7 +1046,7 @@ async function pushSnap(next: LiveSnapshot): Promise<void> {
       )
     }
   }
-  await mergeLiveState(next)
+  if (!force) await mergeLiveState(next)
 }
 
 function weightFromSession(current: LiveSnapshot, slot: number): number | undefined {
@@ -1092,26 +1167,20 @@ function onAppPointer(ev: Event): void {
   const startEl = target.closest('#kell-start') as HTMLElement | null
   if (startEl) {
     if (!takeTap(ev)) return
-    startEl.textContent = '…'
-    void (async function () {
-      const flow = snap ? snap.flow : 'idle'
-      if (flow === 'resting') await runCommand('skip-rest')
-      await runCommand('start')
-    })()
+    runCommand('start')
     return
   }
   const tehtudEl = target.closest('#kell-tehtud') as HTMLElement | null
   if (tehtudEl) {
     if (!takeTap(ev)) return
-    tehtudEl.textContent = '…'
-    void runCommand('tehtud')
+    runCommand('tehtud')
     return
   }
   const slotEl = target.closest('[data-slot]') as HTMLElement | null
   if (slotEl) {
     if (!takeTap(ev)) return
     const slot = Number(slotEl.getAttribute('data-slot'))
-    if (slot === 0 || slot === 1) void runCommand('select-slot', slot)
+    if (slot === 0 || slot === 1) runCommand('select-slot', slot)
   }
 }
 
@@ -1190,34 +1259,55 @@ function newCmd(
   }
 }
 
-async function publishCommand(
+function queueCommand(
   type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot',
   published: LiveSnapshot,
   extra?: { rev?: number; slot?: number },
-): Promise<void> {
+): void {
   const cmd = newCmd(type, extra)
-  await pushSnap(published)
+  outbox.push({ id: cmd.id, type, snap: published, cmd })
+  if (outbox.length > 12) outbox = outbox.slice(-8)
+  saveOutbox()
   sendLive({ kind: 'cmd', cmd })
   sendLive({ kind: 'snap', snap: published })
-  await pushRelay({ kind: 'cmd', cmd })
+  pushRelayAlive({ kind: 'cmd', cmd })
+  pushSnapAlive(published)
+  void flushOutbox()
 }
 
-async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): Promise<void> {
-  if (isStoppedFlow(snap ? snap.flow : undefined)) return
+async function flushOutbox(): Promise<void> {
+  if (flushBusy || !outbox.length) return
+  flushBusy = true
+  try {
+    while (outbox.length) {
+      const item = outbox[0]
+      if (!item) break
+      try {
+        await pushSnap(item.snap, true)
+        sendLive({ kind: 'cmd', cmd: item.cmd })
+        sendLive({ kind: 'snap', snap: item.snap })
+        await pushRelay({ kind: 'cmd', cmd: item.cmd })
+        outbox.shift()
+        saveOutbox()
+      } catch {
+        pushSnapAlive(item.snap)
+        pushRelayAlive({ kind: 'cmd', cmd: item.cmd })
+        break
+      }
+    }
+  } finally {
+    flushBusy = false
+  }
+}
+
+function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): void {
+  if (isStoppedFlow(snap ? snap.flow : undefined) || !snap) return
   const pickCanStart =
-    snap &&
-    snap.flow === 'pick' &&
     type === 'start' &&
     ((snap.session && snap.session.selected.length > 0) || pairFromSnap(snap).length > 0)
-  if (snap && snap.flow === 'pick' && !pickCanStart) return
-  try {
-    await pullSnap()
-  } catch {
-    /* võrk */
-  }
-  if (isStoppedFlow(snap ? snap.flow : undefined) || !snap) return
+  if (snap.flow === 'pick' && !pickCanStart) return
   if (snap.flow === 'pick' && type !== 'start') return
-  localHoldUntil = Date.now() + 8000
+  localHoldUntil = Date.now() + 15000
   connectLiveSocket()
   if (snap.session) {
     const nextSession: LiveSession = applySessionCommand(snap.session, type, Date.now(), { slot: slot })
@@ -1227,25 +1317,28 @@ async function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot'
       published.seq = (snap.seq || 0) + 1
       snap = published
       lastPaintKey = ''
+      rememberSnap()
       paint()
-      await publishCommand(type, published, { rev: nextSession.rev, slot })
+      queueCommand(type, published, { rev: nextSession.rev, slot })
       return
     }
   }
   if (type === 'start' && (snap.flow === 'ready' || snap.flow === 'resting')) {
     snap = { ...snap, flow: 'active', at: Date.now(), seq: (snap.seq || 0) + 1 }
     lastPaintKey = ''
+    rememberSnap()
     paint()
-    await publishCommand(type, snap, { slot })
+    queueCommand(type, snap, { slot })
   } else if (type === 'tehtud' && snap.flow === 'active') {
     snap = { ...snap, flow: 'resting', at: Date.now(), seq: (snap.seq || 0) + 1 }
     lastPaintKey = ''
+    rememberSnap()
     paint()
-    await publishCommand(type, snap, { slot })
+    queueCommand(type, snap, { slot })
   } else {
     const cmd = newCmd(type, { slot })
     sendLive({ kind: 'cmd', cmd })
-    await pushRelay({ kind: 'cmd', cmd })
+    pushRelayAlive({ kind: 'cmd', cmd })
     lastPaintKey = ''
     paint()
   }
@@ -1382,9 +1475,10 @@ async function loop(): Promise<void> {
     }
     return
   }
+  void flushOutbox()
   try {
     await ensureFreshAuth()
-    await pullSnap()
+    if (Date.now() >= localHoldUntil) await pullSnap()
   } catch {
     /* võrk */
   }
@@ -1397,16 +1491,33 @@ async function loop(): Promise<void> {
   paint()
 }
 
+function flushPending(): void {
+  rememberSnap()
+  saveOutbox()
+  const last = outbox.length ? outbox[outbox.length - 1] : null
+  if (last) {
+    pushSnapAlive(last.snap)
+    pushRelayAlive({ kind: 'cmd', cmd: last.cmd })
+    sendLive({ kind: 'cmd', cmd: last.cmd })
+    sendLive({ kind: 'snap', snap: last.snap })
+  }
+  void flushOutbox()
+}
+
 function onWatchResume(): void {
-  if (document.visibilityState === 'hidden') return
+  if (document.visibilityState === 'hidden') {
+    flushPending()
+    return
+  }
   if (keepWanted || isLiveFlow(snap ? snap.flow : 'idle')) ensureKeepAlive()
+  void flushOutbox()
   void loop()
 }
 
 document.addEventListener('visibilitychange', onWatchResume)
 window.addEventListener('pageshow', onWatchResume)
 window.addEventListener('focus', onWatchResume)
-window.addEventListener('pagehide', rememberSnap)
+window.addEventListener('pagehide', flushPending)
 
 bindApp()
 if (pairCode) {
@@ -1417,6 +1528,7 @@ if (pairCode) {
 if (auth) connectLiveSocket()
 if (isLiveFlow(snap ? snap.flow : 'idle')) ensureKeepAlive()
 paint()
+void flushOutbox()
 void loop()
 window.setInterval(function () {
   void loop()
