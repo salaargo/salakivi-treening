@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { LiveSnapshot } from '../live/remote'
 import { dispatchWatchCommand, sendCommand } from '../live/remote'
+import { remainingCatalog } from '../live/sessionEngine'
 import { remainingRestSeconds } from '../components/RestTimer'
 import type { WatchFace } from '../orientation'
 import { getSupabase } from '../lib/supabase'
@@ -219,15 +220,16 @@ export function WatchRemoteScreen({ snap, face, needsLogin = false, onLogin }: W
   }, [held, snap?.flow])
 
   const resting = flow === 'resting' && Boolean(snap?.restEndsAt) && restLeft > 0
+  const catalog =
+    flow === 'pick' && snap?.session ? remainingCatalog(snap.session.log, snap.session.exercises) : []
   const canStart =
     flow === 'ready' ||
     (flow === 'resting' && restLeft <= 0) ||
-    (flow === 'pick' && Boolean(snap?.pairChoices?.length || snap?.exerciseName))
+    (flow === 'pick' && catalog.length > 0)
   const showTehtud = flow === 'active'
-  const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'sauna'
+  const showRemaining = Boolean(snap) && flow !== 'idle' && flow !== 'sauna' && flow !== 'pick'
   const canPickPair = Boolean(snap) && (flow === 'ready' || flow === 'resting')
-  const pickWaiting =
-    flow === 'pick' && !(snap?.pairChoices && snap.pairChoices.length) && !snap?.exerciseName
+  const pickWaiting = flow === 'pick' && catalog.length === 0
 
   if (needsLogin) {
     return (
@@ -274,6 +276,27 @@ export function WatchRemoteScreen({ snap, face, needsLogin = false, onLogin }: W
           </>
         ) : (
           <>
+            {flow === 'pick' && snap?.session && catalog.length > 0 && (
+              <div className="watch-pair-list">
+                {catalog.map((part) => {
+                  const on = snap.session?.selected.includes(part.index)
+                  return (
+                    <button
+                      key={`${part.index}-${part.name}`}
+                      type="button"
+                      className={`watch-pair-btn ${on ? 'is-next' : ''}`}
+                      onClick={() => dispatchWatchCommand('pick-index', { index: part.index })}
+                    >
+                      <span>{part.name}</span>
+                      <span>
+                        {part.weightKg ? `${part.weightKg} kg · ` : ''}
+                        {part.left} {part.left === 1 ? 'seeria' : 'seeriat'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             {showRemaining && snap && <WatchPairPicker snap={snap} canSelect={canPickPair} />}
             {showRemaining && snap && <WatchRemaining snap={snap} />}
             {canStart && !showTehtud && (

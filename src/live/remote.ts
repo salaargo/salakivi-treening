@@ -2,8 +2,10 @@ import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { isWatchMode } from '../orientation'
 import {
+  allExercisesDone,
   applySessionCommand,
   completedSetCount,
+  reopenIncompleteSession,
   sessionToSnapshot,
   snapshotDateRank,
   snapshotShouldReplace,
@@ -14,6 +16,7 @@ export type RemoteCommandType =
   | 'tehtud'
   | 'skip-rest'
   | 'select-slot'
+  | 'pick-index'
   | 'finish-exercise'
   | 'stop'
   | 'sync'
@@ -50,6 +53,7 @@ export interface LiveCommand {
   at: number
   rev?: number
   slot?: number
+  index?: number
 }
 
 const BC_NAME = 'salakivi-live'
@@ -80,10 +84,18 @@ export function snapshotIsAhead(
   localFlow?: LiveSnapshot['flow'],
 ): boolean {
   if (!incoming?.session || incoming.session.v !== 2) return false
-  if (incoming.flow === 'idle') return false
+  const incomingSession = reopenIncompleteSession(incoming.session)
+  if (incoming.flow === 'idle' && incomingSession.flow === 'idle') return false
   if (
-    incoming.flow === 'pick' &&
+    incomingSession.flow === 'pick' &&
     (localFlow === 'ready' || localFlow === 'active' || localFlow === 'resting')
+  ) {
+    return false
+  }
+  if (
+    incomingSession.flow === 'sauna' &&
+    localFlow !== 'sauna' &&
+    !allExercisesDone(incomingSession.log, incomingSession.exercises)
   ) {
     return false
   }
@@ -91,7 +103,7 @@ export function snapshotIsAhead(
   if (inSets < localCompleted) return false
   if (
     localFlow === 'pick' &&
-    (incoming.flow === 'ready' || incoming.flow === 'active' || incoming.flow === 'resting')
+    (incomingSession.flow === 'ready' || incomingSession.flow === 'active' || incomingSession.flow === 'resting')
   ) {
     return true
   }
@@ -101,13 +113,28 @@ export function snapshotIsAhead(
   if (inRev === localRev && inSets === localCompleted && localFlow) {
     if (incoming.flow === 'active' && localFlow === 'ready') return true
     if (incoming.flow === 'resting' && (localFlow === 'active' || localFlow === 'ready')) return true
-    if (incoming.flow === 'sauna' && localFlow !== 'sauna') return true
+    if (
+      incomingSession.flow === 'sauna' &&
+      localFlow !== 'sauna' &&
+      allExercisesDone(incomingSession.log, incomingSession.exercises)
+    ) {
+      return true
+    }
   }
   return false
 }
 
 /** Vanem hetkeseis ei tohi kella Start/Tehtud peale tagasi keerata. */
 function applySnap(snap: LiveSnapshot): boolean {
+  if (snap.session) {
+    const session = reopenIncompleteSession(snap.session)
+    if (session !== snap.session || session.flow !== snap.flow) {
+      const next = sessionToSnapshot(session) as LiveSnapshot
+      next.epoch = snap.epoch
+      next.seq = snap.seq
+      snap = next
+    }
+  }
   if (!snapshotShouldReplace(snap, lastSnap)) return false
   lastSnap = snap
   if (!isWatchMode()) {
@@ -402,7 +429,7 @@ export function publishSnapshot(snap: LiveSnapshot): void {
 
 export function sendCommand(
   type: LiveCommand['type'],
-  meta?: { rev?: number; slot?: number },
+  meta?: { rev?: number; slot?: number; index?: number },
 ): void {
   const cmd: LiveCommand = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -410,6 +437,7 @@ export function sendCommand(
     at: Date.now(),
     rev: meta?.rev,
     slot: meta?.slot,
+    index: meta?.index,
   }
   try {
     localStorage.setItem(CMD_KEY, JSON.stringify(cmd))
@@ -428,7 +456,7 @@ export function sendCommand(
 /** Kell: rakenda käsk kohapeal ja kirjuta pilve — telefon lukus olles JS ei tiksu. */
 export function dispatchWatchCommand(
   type: LiveCommand['type'],
-  extra?: { slot?: number },
+  extra?: { slot?: number; index?: number },
 ): void {
   if (type === 'sync' || type === 'stop' || type === 'finish-exercise') {
     sendCommand(type)
@@ -439,11 +467,11 @@ export function dispatchWatchCommand(
     snap?.session &&
     snap.flow !== 'sauna' &&
     snap.flow !== 'idle' &&
-    (snap.flow !== 'pick' || type === 'start')
+    (snap.flow !== 'pick' || type === 'start' || type === 'pick-index')
   ) {
     const next = applySessionCommand(snap.session, type, Date.now(), extra)
     if (next !== snap.session) {
-      sendCommand(type, { rev: next.rev, slot: extra?.slot })
+      sendCommand(type, { rev: next.rev, slot: extra?.slot, index: extra?.index })
       publishSnapshot(sessionToSnapshot(next))
       return
     }

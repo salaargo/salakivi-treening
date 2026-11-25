@@ -16,11 +16,11 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { afterSetAction } from '../workoutFlow'
 import { publishSnapshot, pullRemoteSnapshot, subscribeCommands, subscribeSnapshot, snapshotIsAhead, getLatestLiveSnapshot, type LiveCommand } from '../live/remote'
 import type { LiveSession } from '../live/sessionEngine'
-import { completedSetCount } from '../live/sessionEngine'
+import { completedSetCount, reopenIncompleteSession } from '../live/sessionEngine'
 import { isWatchMode, lockPortrait, useScreenWakeLock } from '../orientation'
 import { clearRestSession, loadRestSession, saveRestSession } from '../restSession'
 import { useWorkoutKeepAlive } from '../keepAlive'
-import { bootWorkout } from '../workoutResume'
+import { bootWorkout, mergeDayLogs } from '../workoutResume'
 
 interface WorkoutScreenProps {
   state: AppState
@@ -109,6 +109,7 @@ function isExerciseDone(log: DayLog, exerciseId: string): boolean {
 }
 
 function allExercisesDone(log: DayLog, exercises: ExerciseTemplate[]): boolean {
+  if (!exercises.length) return false
   return exercises.every((ex) => isExerciseDone(log, ex.id))
 }
 
@@ -234,8 +235,12 @@ export function WorkoutScreen({
   const sessionRevRef = useRef(boot.rev)
   const flowRef = useRef(flow)
   const logRef = useRef(log)
+  const selectedRef = useRef(selected)
+  const activeSlotRef = useRef(activeSlot)
   flowRef.current = flow
   logRef.current = log
+  selectedRef.current = selected
+  activeSlotRef.current = activeSlot
   const workMsAcc = useRef(boot.workMs)
   const restMsAcc = useRef(boot.restMs)
   const commandRef = useRef({
@@ -246,6 +251,7 @@ export function WorkoutScreen({
     onSkipRest: () => {},
     onFinishEarly: () => {},
     onSelectSlot: (_slot: number) => {},
+    onPickIndex: (_index: number) => {},
   })
   const pauseWorkoutRef = useRef<() => void>(() => {})
 
@@ -259,19 +265,32 @@ export function WorkoutScreen({
 
   const hydrateSession = useCallback(
     (s: LiveSession, epoch?: number) => {
+      const incoming = reopenIncompleteSession(s)
       const local = logRef.current
-      const incomingSets = completedSetCount(s.log)
-      const localSets = completedSetCount(local)
-      const logToUse = local && incomingSets < localSets ? local : s.log
-      sessionRevRef.current = Math.max(s.rev ?? 0, sessionRevRef.current)
+      const logToUse = local ? mergeDayLogs(local, incoming.log) : incoming.log
+      sessionRevRef.current = Math.max(incoming.rev ?? 0, sessionRevRef.current)
       if (epoch != null && epoch > liveEpochRef.current) liveEpochRef.current = epoch
       commitLog(logToUse)
-      let nextFlow: Flow = s.flow === 'idle' ? 'pick' : s.flow
-      let nextRestEnds = s.restEndsAt ?? null
-      let nextSelected = s.selected
-      let nextSlot = s.activeSlot
+      let nextFlow: Flow = incoming.flow === 'idle' ? 'pick' : incoming.flow
+      let nextRestEnds = incoming.restEndsAt ?? null
+      let nextSelected = incoming.selected
+      let nextSlot = incoming.activeSlot
+      if (
+        nextFlow === 'pick' &&
+        nextSelected.length === 0 &&
+        selectedRef.current.length > 0 &&
+        flowRef.current === 'pick'
+      ) {
+        nextSelected = selectedRef.current
+        nextSlot = activeSlotRef.current
+      }
+      if (nextFlow === 'sauna' && !allExercisesDone(logToUse, liveExercises)) {
+        nextFlow = 'pick'
+        nextSelected = []
+        nextSlot = 0
+      }
       if (nextFlow === 'resting' && (!nextRestEnds || nextRestEnds <= Date.now())) {
-        nextFlow = s.pendingAfterRest === 'pick' ? 'pick' : 'ready'
+        nextFlow = incoming.pendingAfterRest === 'pick' ? 'pick' : 'ready'
         nextRestEnds = null
         if (nextFlow === 'pick') {
           nextSelected = []
@@ -281,18 +300,18 @@ export function WorkoutScreen({
       setFlow(nextFlow)
       setSelected(nextSelected)
       setActiveSlot(nextSlot)
-      setRestSeconds(s.restSeconds)
-      setRestHint(s.restHint)
-      setRestNext(s.restNext)
+      setRestSeconds(incoming.restSeconds)
+      setRestHint(incoming.restHint)
+      setRestNext(incoming.restNext)
       setRestEndsAt(nextRestEnds)
-      pendingAfterRest.current = s.pendingAfterRest
-      sessionStartedAt.current = s.sessionStartedAt
-      workMsAcc.current = s.workMs
-      restMsAcc.current = s.restMs
-      setStartedAt.current = s.setStartedAt
-      lastTehtudAt.current = s.lastTehtudAt
+      pendingAfterRest.current = incoming.pendingAfterRest
+      sessionStartedAt.current = incoming.sessionStartedAt
+      workMsAcc.current = incoming.workMs
+      restMsAcc.current = incoming.restMs
+      setStartedAt.current = incoming.setStartedAt
+      lastTehtudAt.current = incoming.lastTehtudAt
     },
-    [commitLog],
+    [commitLog, liveExercises],
   )
 
   function bumpSessionRev() {
@@ -685,6 +704,10 @@ export function WorkoutScreen({
         handlers.onSelectSlot(cmd.slot)
         applied = true
       }
+      if (cmd.type === 'pick-index' && cmd.index != null) {
+        handlers.onPickIndex(cmd.index)
+        applied = true
+      }
       if (cmd.type === 'finish-exercise' && (handlers.flow === 'ready' || handlers.flow === 'active')) {
         handlers.onFinishEarly()
         applied = true
@@ -732,7 +755,13 @@ export function WorkoutScreen({
   }
 
   function beginAndStartFromWatch(): boolean {
-    if (selected.length === 0) return false
+    let nextSelected = selected
+    if (nextSelected.length === 0) {
+      const next = remainingExercises[0]
+      if (!next) return false
+      nextSelected = [next.index]
+      setSelected(nextSelected)
+    }
     bumpSessionRev()
     setActiveSlot(0)
     recordStart()
@@ -920,7 +949,7 @@ export function WorkoutScreen({
       allDone: allExercisesDone(next, liveExercises),
     })
 
-    if (action.kind === 'sauna') {
+    if (action.kind === 'sauna' && allExercisesDone(next, liveExercises)) {
       commitLog(withFinishStats(next))
       setFlow('sauna')
       return
@@ -928,7 +957,7 @@ export function WorkoutScreen({
 
     commitLog(next)
 
-    if (action.kind === 'pick') {
+    if (action.kind !== 'continue') {
       setSelected([])
       setActiveSlot(0)
       setFlow('pick')
@@ -1074,6 +1103,19 @@ export function WorkoutScreen({
       else bumpSessionRev()
       setActiveSlot(slot)
     },
+    onPickIndex: (index: number) => {
+      const exercise = liveExercises[index]
+      if (!exercise || isExerciseDone(dayLog, exercise.id)) return
+      if (flow !== 'pick' && flow !== 'ready') return
+      bumpSessionRev()
+      setSelected((prev) => {
+        if (prev.includes(index)) return prev
+        if (prev.length >= 2) return [prev[1], index]
+        return [...prev, index]
+      })
+      setActiveSlot(0)
+      setFlow('pick')
+    },
   }
 
   if (flow === 'sauna') {
@@ -1132,6 +1174,21 @@ export function WorkoutScreen({
             </div>
           </div>
 
+          {missed.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-primary full"
+              onClick={() => {
+                bumpSessionRev()
+                commitLog({ ...dayLog, finishedAt: undefined, stoppedEarly: undefined })
+                setSelected([])
+                setActiveSlot(0)
+                setFlow('pick')
+              }}
+            >
+              Jätka treeningut
+            </button>
+          )}
           <button type="button" className="btn btn-hero" onClick={onFinish}>
             Valmis
           </button>

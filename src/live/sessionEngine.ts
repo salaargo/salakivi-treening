@@ -57,8 +57,70 @@ function isExerciseDone(log: DayLog, exerciseId: string): boolean {
   return Boolean(entry.sets.length && entry.sets.every((s) => s.completed))
 }
 
-function allExercisesDone(log: DayLog, exercises: SessionExercise[]): boolean {
-  return exercises.every((ex) => isExerciseDone(log, ex.id))
+function catalogIds(log: DayLog, exercises: { id: string }[]): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const ex of exercises) {
+    if (seen.has(ex.id)) continue
+    seen.add(ex.id)
+    ids.push(ex.id)
+  }
+  for (const row of log.exercises) {
+    if (seen.has(row.exerciseId)) continue
+    seen.add(row.exerciseId)
+    ids.push(row.exerciseId)
+  }
+  return ids
+}
+
+/** Tühi nimekiri ei ole "kõik tehtud" — muidu 3. harjutusest minnakse valesse Sauna. */
+export function allExercisesDone(log: DayLog, exercises: { id: string }[]): boolean {
+  const ids = catalogIds(log, exercises)
+  if (ids.length === 0) return false
+  return ids.every((id) => isExerciseDone(log, id))
+}
+
+export function remainingCatalog(
+  log: DayLog,
+  exercises: SessionExercise[],
+): { index: number; name: string; left: number; weightKg?: number }[] {
+  const rows: { index: number; name: string; left: number; weightKg?: number }[] = []
+  exercises.forEach((ex, index) => {
+    if (isExerciseDone(log, ex.id)) return
+    const entry = findExerciseLog(log, ex.id)
+    const left = entry ? entry.sets.filter((s) => !s.completed).length : 0
+    const next = entry?.sets.find((s) => !s.completed)
+    rows.push({
+      index,
+      name: ex.name,
+      left,
+      weightKg: next && next.weightKg > 0 ? next.weightKg : undefined,
+    })
+  })
+  return rows
+}
+
+/** Sauna, millel on tegemata harjutusi, avatakse uuesti valikusse. */
+export function reopenIncompleteSession(session: LiveSession): LiveSession {
+  if (session.flow !== 'sauna' && session.flow !== 'idle') return session
+  if (allExercisesDone(session.log, session.exercises)) return session
+  return {
+    ...session,
+    flow: 'pick',
+    selected: [],
+    activeSlot: 0,
+    restEndsAt: undefined,
+    log: { ...session.log, finishedAt: undefined, stoppedEarly: undefined },
+  }
+}
+
+function firstOpenIndexes(session: LiveSession, limit = 1): number[] {
+  const open: number[] = []
+  for (let i = 0; i < session.exercises.length && open.length < limit; i++) {
+    const ex = session.exercises[i]
+    if (ex && !isExerciseDone(session.log, ex.id)) open.push(i)
+  }
+  return open
 }
 
 function remainingSetParts(
@@ -206,13 +268,13 @@ function applyTehtud(session: LiveSession, now: number): LiveSession {
     allDone: allExercisesDone(nextLog, session.exercises),
   })
 
-  if (action.kind === 'sauna') {
+  if (action.kind === 'sauna' && allExercisesDone(nextLog, session.exercises)) {
     return finishSession({ ...next, log: nextLog }, now)
   }
 
   next = { ...next, log: nextLog }
 
-  if (action.kind === 'pick') {
+  if (action.kind !== 'continue') {
     return {
       ...next,
       selected: [],
@@ -261,11 +323,23 @@ function finishSession(session: LiveSession, now: number): LiveSession {
 
 export function applySessionCommand(
   session: LiveSession,
-  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot' | 'finish-exercise' | 'stop' | 'sync',
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot' | 'pick-index' | 'finish-exercise' | 'stop' | 'sync',
   now = Date.now(),
-  extra?: { slot?: number },
+  extra?: { slot?: number; index?: number },
 ): LiveSession {
+  session = reopenIncompleteSession(session)
   if (type === 'sync' || type === 'stop' || type === 'finish-exercise') return session
+  if (type === 'pick-index') {
+    const index = extra?.index
+    if (index == null || index < 0 || !session.exercises[index]) return session
+    const ex = session.exercises[index]
+    if (!ex || isExerciseDone(session.log, ex.id)) return session
+    if (session.flow !== 'pick' && session.flow !== 'ready') return session
+    let selected = session.selected.filter((i) => i !== index)
+    if (selected.length >= 2) selected = selected.slice(-1)
+    selected = [...selected, index]
+    return withRev(session, { ...session, selected, activeSlot: 0, flow: 'pick' })
+  }
   if (type === 'select-slot') {
     const slot = extra?.slot
     if (slot !== 0 && slot !== 1) return session
@@ -277,6 +351,10 @@ export function applySessionCommand(
   }
   if (type === 'start') {
     let next = session
+    if (next.flow === 'pick' && next.selected.length === 0) {
+      const open = firstOpenIndexes(next, 1)
+      if (open.length) next = { ...next, selected: open, activeSlot: 0 }
+    }
     if (next.flow === 'pick' && next.selected.length > 0) next = { ...next, flow: 'ready' }
     if (next.flow === 'resting') next = endRest(next)
     if (next.flow !== 'ready') return session
@@ -417,6 +495,24 @@ export function snapshotShouldReplace(
   const dayCmp = snapshotDateRank(incoming.dateKey, current.dateKey)
   if (dayCmp !== 0) return dayCmp > 0
   if (current.session && !incoming.session) return false
+  if (
+    incoming.flow === 'sauna' &&
+    current.flow !== 'sauna' &&
+    incoming.session &&
+    !allExercisesDone(incoming.session.log, incoming.session.exercises)
+  ) {
+    return false
+  }
+  if (
+    incoming.flow === 'pick' &&
+    current.flow === 'pick' &&
+    (incoming.session?.selected.length ?? incoming.pairChoices?.length ?? 0) === 0 &&
+    (current.session?.selected.length ?? current.pairChoices?.length ?? 0) > 0 &&
+    snapshotSets(incoming) <= snapshotSets(current) &&
+    snapshotRev(incoming) <= snapshotRev(current)
+  ) {
+    return false
+  }
 
   const inSets = snapshotSets(incoming)
   const curSets = snapshotSets(current)

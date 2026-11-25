@@ -1,5 +1,7 @@
 import {
   applySessionCommand,
+  remainingCatalog,
+  reopenIncompleteSession,
   sessionToSnapshot,
   snapshotDateRank,
   snapshotShouldReplace,
@@ -25,9 +27,9 @@ interface KellAuth {
 
 interface OutboxItem {
   id: string
-  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot'
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot' | 'pick-index'
   snap: LiveSnapshot
-  cmd: { id: string; type: string; at: number; rev?: number; slot?: number }
+  cmd: { id: string; type: string; at: number; rev?: number; slot?: number; index?: number }
 }
 
 function searchParams(): URLSearchParams {
@@ -495,8 +497,19 @@ function syncKeepAlive(): void {
   else stopKeepAlive()
 }
 
+function normalizeIncoming(incoming: LiveSnapshot): LiveSnapshot {
+  if (!incoming.session) return incoming
+  const session = reopenIncompleteSession(incoming.session)
+  if (session === incoming.session && incoming.flow === session.flow) return incoming
+  const next = sessionToSnapshot(session) as LiveSnapshot
+  next.epoch = incoming.epoch
+  next.seq = incoming.seq
+  return next
+}
+
 function adoptSnap(incoming: LiveSnapshot | null | undefined): boolean {
   if (!incoming || incoming.v !== 1) return false
+  incoming = normalizeIncoming(incoming)
   if (incoming.dateKey && incoming.dateKey < localDateKey()) return false
   const dayCmp = snapshotDateRank(incoming.dateKey, snap?.dateKey)
   if (dayCmp < 0) return false
@@ -1176,6 +1189,13 @@ function onAppPointer(ev: Event): void {
     runCommand('tehtud')
     return
   }
+  const pickEl = target.closest('[data-pick-index]') as HTMLElement | null
+  if (pickEl) {
+    if (!takeTap(ev)) return
+    const index = Number(pickEl.getAttribute('data-pick-index'))
+    if (Number.isFinite(index)) runCommand('pick-index', undefined, index)
+    return
+  }
   const slotEl = target.closest('[data-slot]') as HTMLElement | null
   if (slotEl) {
     if (!takeTap(ev)) return
@@ -1247,22 +1267,23 @@ function paintPinPad(root: HTMLElement): void {
 }
 
 function newCmd(
-  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot',
-  extra?: { rev?: number; slot?: number },
-): { id: string; type: string; at: number; rev?: number; slot?: number } {
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot' | 'pick-index',
+  extra?: { rev?: number; slot?: number; index?: number },
+): { id: string; type: string; at: number; rev?: number; slot?: number; index?: number } {
   return {
     id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
     type,
     at: Date.now(),
     rev: extra?.rev,
     slot: extra?.slot,
+    index: extra?.index,
   }
 }
 
 function queueCommand(
-  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot',
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot' | 'pick-index',
   published: LiveSnapshot,
-  extra?: { rev?: number; slot?: number },
+  extra?: { rev?: number; slot?: number; index?: number },
 ): void {
   const cmd = newCmd(type, extra)
   outbox.push({ id: cmd.id, type, snap: published, cmd })
@@ -1282,6 +1303,11 @@ async function flushOutbox(): Promise<void> {
     while (outbox.length) {
       const item = outbox[0]
       if (!item) break
+      if (snap && !snapshotShouldReplace(item.snap, snap)) {
+        outbox.shift()
+        saveOutbox()
+        continue
+      }
       try {
         await pushSnap(item.snap, true)
         sendLive({ kind: 'cmd', cmd: item.cmd })
@@ -1300,17 +1326,35 @@ async function flushOutbox(): Promise<void> {
   }
 }
 
-function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot?: number): void {
-  if (isStoppedFlow(snap ? snap.flow : undefined) || !snap) return
+function runCommand(
+  type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot' | 'pick-index',
+  slot?: number,
+  index?: number,
+): void {
+  if (!snap) return
+  if (snap.session) {
+    const reopened = reopenIncompleteSession(snap.session)
+    if (reopened !== snap.session) {
+      const published = sessionToSnapshot(reopened) as LiveSnapshot
+      published.epoch = snap.epoch
+      published.seq = snap.seq
+      snap = published
+    }
+  }
+  if (isStoppedFlow(snap.flow)) return
+  const remaining = snap.session ? remainingCatalog(snap.session.log, snap.session.exercises) : []
   const pickCanStart =
     type === 'start' &&
-    ((snap.session && snap.session.selected.length > 0) || pairFromSnap(snap).length > 0)
-  if (snap.flow === 'pick' && !pickCanStart) return
-  if (snap.flow === 'pick' && type !== 'start') return
+    ((snap.session && snap.session.selected.length > 0) || pairFromSnap(snap).length > 0 || remaining.length > 0)
+  if (snap.flow === 'pick' && type === 'start' && !pickCanStart) return
+  if (snap.flow === 'pick' && type !== 'start' && type !== 'pick-index') return
   localHoldUntil = Date.now() + 15000
   connectLiveSocket()
   if (snap.session) {
-    const nextSession: LiveSession = applySessionCommand(snap.session, type, Date.now(), { slot: slot })
+    const nextSession: LiveSession = applySessionCommand(snap.session, type, Date.now(), {
+      slot: slot,
+      index: index,
+    })
     if (nextSession !== snap.session) {
       const published = sessionToSnapshot(nextSession) as LiveSnapshot
       published.epoch = snap.epoch || Date.now()
@@ -1319,7 +1363,7 @@ function runCommand(type: 'start' | 'tehtud' | 'skip-rest' | 'select-slot', slot
       lastPaintKey = ''
       rememberSnap()
       paint()
-      queueCommand(type, published, { rev: nextSession.rev, slot })
+      queueCommand(type, published, { rev: nextSession.rev, slot, index })
       return
     }
   }
@@ -1364,9 +1408,16 @@ function paint(): void {
   const flow = snap ? snap.flow : 'idle'
   const left = snap && snap.restEndsAt ? restLeft(snap.restEndsAt) : 0
   const resting = flow === 'resting' && left > 0
-  const pair = snap ? pairFromSnap(snap) : []
+  const catalog =
+    flow === 'pick' && snap && snap.session
+      ? remainingCatalog(snap.session.log, snap.session.exercises)
+      : []
+  const pair = flow === 'pick' ? [] : snap ? pairFromSnap(snap) : []
+  const selectedIdx = snap && snap.session ? snap.session.selected : []
   const canStart =
-    flow === 'ready' || (flow === 'resting' && left <= 0) || (flow === 'pick' && pair.length > 0)
+    flow === 'ready' ||
+    (flow === 'resting' && left <= 0) ||
+    (flow === 'pick' && catalog.length > 0)
   const showTehtud = flow === 'active'
   const paintKey = [
     flow,
@@ -1382,6 +1433,11 @@ function paint(): void {
     pair
       .map(function (p) {
         return p.slot + p.name + p.left + String(p.weightKg || 0)
+      })
+      .join(','),
+    catalog
+      .map(function (p) {
+        return p.index + p.name + p.left + (selectedIdx.indexOf(p.index) >= 0 ? '*' : '')
       })
       .join(','),
   ].join('|')
@@ -1405,6 +1461,23 @@ function paint(): void {
   }
 
   if (snap && flow !== 'idle' && flow !== 'sauna') {
+    catalog.forEach(function (item) {
+      const on = selectedIdx.indexOf(item.index) >= 0
+      parts.push(
+        '<button type="button" class="pair' +
+          (on ? ' on' : '') +
+          '" data-pick-index="' +
+          item.index +
+          '"><span class="nm">' +
+          esc(item.name) +
+          '</span><span class="meta">' +
+          (item.weightKg != null && item.weightKg > 0 ? '<b>' + item.weightKg + ' kg</b>' : '<span></span>') +
+          '<strong>' +
+          item.left +
+          (item.left === 1 ? ' seeria' : ' seeriat') +
+          '</strong></span></button>',
+      )
+    })
     pair.forEach(function (item) {
       const on = item.slot === (snap && snap.activeSlot != null ? snap.activeSlot : 0)
       parts.push(
@@ -1422,7 +1495,7 @@ function paint(): void {
           '</strong></span></button>',
       )
     })
-    if (pair.length === 0 && snap.exerciseName) {
+    if (catalog.length === 0 && pair.length === 0 && snap.exerciseName) {
       parts.push(
         '<p class="wait">' +
           esc(snap.exerciseName) +
@@ -1439,7 +1512,7 @@ function paint(): void {
   if (showTehtud) {
     parts.push('<button class="tehtud" id="kell-tehtud" type="button">Tehtud</button>')
   }
-  if (flow === 'pick' && pair.length === 0 && !(snap && snap.exerciseName)) {
+  if (flow === 'pick' && catalog.length === 0 && pair.length === 0 && !(snap && snap.exerciseName)) {
     parts.push('<p class="wait">Vali harjutus telefonis</p>')
   }
   if (flow === 'sauna') parts.push('<p class="start sauna-mark">Sauna</p>')

@@ -203,6 +203,15 @@ export function bootWorkout(opts: {
     let activeSlot = session.activeSlot ?? 0
 
     if (flow === 'sauna') {
+      const stillOpen = opts.exercises.some((ex) => !isExerciseLogDone(merged, ex.id))
+      if (stillOpen) {
+        return emptyBoot(
+          { ...merged, finishedAt: undefined, stoppedEarly: undefined },
+          'pick',
+          snap.epoch ?? now,
+          { rev: session.rev ?? 0 },
+        )
+      }
       return emptyBoot(merged, 'sauna', snap.epoch ?? now, { rev: session.rev ?? 0 })
     }
 
