@@ -88,7 +88,7 @@ export function remainingCatalog(
   exercises.forEach((ex, index) => {
     if (isExerciseDone(log, ex.id)) return
     const entry = findExerciseLog(log, ex.id)
-    const left = entry ? entry.sets.filter((s) => !s.completed).length : 0
+    const left = entry ? entry.sets.filter((s) => !s.completed).length : 4
     const next = entry?.sets.find((s) => !s.completed)
     rows.push({
       index,
@@ -111,6 +111,48 @@ export function reopenIncompleteSession(session: LiveSession): LiveSession {
     activeSlot: 0,
     restEndsAt: undefined,
     log: { ...session.log, finishedAt: undefined, stoppedEarly: undefined },
+  }
+}
+
+/** Ainult need valitud indeksid, millel on veel seeriaid. */
+export function openSelectedIndexes(session: LiveSession): number[] {
+  const out: number[] = []
+  const seen = new Set<number>()
+  for (const index of session.selected) {
+    if (seen.has(index)) continue
+    const ex = session.exercises[index]
+    if (!ex || isExerciseDone(session.log, ex.id)) continue
+    seen.add(index)
+    out.push(index)
+    if (out.length >= 2) break
+  }
+  return out
+}
+
+/**
+ * Lõpetatud paar ei tohi jääda valikusse — muidu Start käivitab 1. harjutuse
+ * uuesti ja Tehtud 3. harjutuse juures ei tee midagi.
+ */
+export function sanitizeLiveSession(session: LiveSession): LiveSession {
+  const reopened = reopenIncompleteSession(session)
+  const selected = openSelectedIndexes(reopened)
+  let flow = reopened.flow
+  let activeSlot = selected.length === 0 ? 0 : Math.min(Math.max(0, reopened.activeSlot), selected.length - 1)
+  if (selected.length === 0 && (flow === 'ready' || flow === 'active' || flow === 'resting')) {
+    if (!allExercisesDone(reopened.log, reopened.exercises)) flow = 'pick'
+  }
+  const sameSelected =
+    selected.length === reopened.selected.length &&
+    selected.every((value, i) => value === reopened.selected[i])
+  if (reopened === session && flow === session.flow && activeSlot === session.activeSlot && sameSelected) {
+    return session
+  }
+  return {
+    ...reopened,
+    selected,
+    activeSlot,
+    flow,
+    restEndsAt: flow === 'resting' ? reopened.restEndsAt : undefined,
   }
 }
 
@@ -148,6 +190,30 @@ function selectedExercises(session: LiveSession): SessionExercise[] {
   return session.selected
     .map((index) => session.exercises[index])
     .filter((ex): ex is SessionExercise => Boolean(ex))
+}
+
+function ensureSelectedLogs(session: LiveSession): LiveSession {
+  let exercises = session.log.exercises
+  let changed = false
+  const template = exercises.find((row) => row.sets.length > 0)
+  const fallbackSets: SetLog[] = template
+    ? template.sets.map((s) => ({ ...s, completed: false }))
+    : [{ machineId: '', weightKg: 0, reps: 0, completed: false }]
+  for (const index of session.selected) {
+    const ex = session.exercises[index]
+    if (!ex) continue
+    const entry = findExerciseLog({ ...session.log, exercises }, ex.id)
+    if (entry && entry.sets.length > 0) continue
+    const row: ExerciseLog = {
+      exerciseId: ex.id,
+      sets: fallbackSets.map((s) => ({ ...s })),
+    }
+    exercises = entry
+      ? exercises.map((item) => (item.exerciseId === ex.id ? row : item))
+      : [...exercises, row]
+    changed = true
+  }
+  return changed ? { ...session, log: { ...session.log, exercises } } : session
 }
 
 function markSetComplete(exerciseId: string, si: number, log: DayLog): DayLog {
@@ -236,14 +302,24 @@ function endRest(session: LiveSession): LiveSession {
   }
 }
 
+function recoverStuckActive(session: LiveSession, now: number): LiveSession {
+  const next = sanitizeLiveSession(session)
+  if (next.selected.length > 0) {
+    return { ...next, activeSlot: 0, flow: 'ready' }
+  }
+  if (allExercisesDone(next.log, next.exercises)) return finishSession(next, now)
+  return { ...next, selected: [], activeSlot: 0, flow: 'pick' }
+}
+
 function applyTehtud(session: LiveSession, now: number): LiveSession {
+  if (session.flow !== 'active') return recoverStuckActive(session, now)
   const currentExIndex = session.selected[session.activeSlot] ?? session.selected[0]
   const currentEx = currentExIndex !== undefined ? session.exercises[currentExIndex] : undefined
-  if (!currentEx || session.flow !== 'active') return session
-
-  const setIndex = nextIncompleteSet(session.log, currentEx.id)
-  const currentSet: SetLog | undefined = findExerciseLog(session.log, currentEx.id)?.sets[setIndex]
-  if (!currentSet) return session
+  const setIndex = currentEx ? nextIncompleteSet(session.log, currentEx.id) : 0
+  const currentSet: SetLog | undefined = currentEx
+    ? findExerciseLog(session.log, currentEx.id)?.sets[setIndex]
+    : undefined
+  if (!currentEx || !currentSet) return recoverStuckActive(session, now)
 
   let next = recordTehtud(session, now)
   const nextLog = markSetComplete(currentEx.id, setIndex, next.log)
@@ -327,7 +403,7 @@ export function applySessionCommand(
   now = Date.now(),
   extra?: { slot?: number; index?: number },
 ): LiveSession {
-  session = reopenIncompleteSession(session)
+  session = sanitizeLiveSession(session)
   if (type === 'sync' || type === 'stop' || type === 'finish-exercise') return session
   if (type === 'pick-index') {
     const index = extra?.index
@@ -335,9 +411,8 @@ export function applySessionCommand(
     const ex = session.exercises[index]
     if (!ex || isExerciseDone(session.log, ex.id)) return session
     if (session.flow !== 'pick' && session.flow !== 'ready') return session
-    let selected = session.selected.filter((i) => i !== index)
-    if (selected.length >= 2) selected = selected.slice(-1)
-    selected = [...selected, index]
+    const kept = openSelectedIndexes({ ...session, selected: session.selected.filter((i) => i !== index) })
+    const selected = [...(kept.length >= 2 ? kept.slice(-1) : kept), index]
     return withRev(session, { ...session, selected, activeSlot: 0, flow: 'pick' })
   }
   if (type === 'select-slot') {
@@ -358,6 +433,7 @@ export function applySessionCommand(
     if (next.flow === 'pick' && next.selected.length > 0) next = { ...next, flow: 'ready' }
     if (next.flow === 'resting') next = endRest(next)
     if (next.flow !== 'ready') return session
+    next = ensureSelectedLogs(next)
     return withRev(session, recordStart(next, now))
   }
   if (type === 'tehtud') return withRev(session, applyTehtud(session, now))
@@ -389,6 +465,7 @@ export function sessionToSnapshot(session: LiveSession): {
   pairChoices?: { slot: number; name: string; left: number; weightKg?: number }[]
   session: LiveSession
 } {
+  session = sanitizeLiveSession(session)
   const currentExIndex = session.selected[session.activeSlot] ?? session.selected[0]
   const currentEx = currentExIndex !== undefined ? session.exercises[currentExIndex] : undefined
   const other =
@@ -461,17 +538,19 @@ function isWorkingFlow(flow?: LiveSession['flow']): boolean {
 
 /** Telefoni uus harjutusvalik — mitte juba lõpetatud paar, mis veel ready'na tiksub. */
 function incomingHasOpenSelection(incoming: RankedSnapshot, current: RankedSnapshot): boolean {
-  const session = incoming.session
-  const selected = session?.selected ?? []
-  if (session && selected.length > 0) {
-    const log = current.session?.log ?? session.log
-    return selected.some((index) => {
-      const ex = session.exercises[index]
-      if (!ex) return false
-      return !isExerciseDone(log, ex.id)
-    })
+  return openSelectionCount(incoming, current.session?.log) > 0
+}
+
+function openSelectionCount(
+  snap: RankedSnapshot | null | undefined,
+  logOverride?: DayLog,
+): number {
+  const session = snap?.session
+  if (session) {
+    const log = logOverride ?? session.log
+    return openSelectedIndexes({ ...session, log }).length
   }
-  return Boolean(incoming.pairChoices && incoming.pairChoices.length > 0)
+  return snap?.pairChoices?.length ?? 0
 }
 
 /** YYYY-MM-DD: uus treeningpäev võidab vana, vana ei tohi uut üle kirjutada. */
@@ -506,8 +585,17 @@ export function snapshotShouldReplace(
   if (
     incoming.flow === 'pick' &&
     current.flow === 'pick' &&
-    (incoming.session?.selected.length ?? incoming.pairChoices?.length ?? 0) === 0 &&
-    (current.session?.selected.length ?? current.pairChoices?.length ?? 0) > 0 &&
+    openSelectionCount(incoming, current.session?.log) === 0 &&
+    openSelectionCount(current) > 0 &&
+    snapshotSets(incoming) <= snapshotSets(current) &&
+    snapshotRev(incoming) <= snapshotRev(current)
+  ) {
+    return false
+  }
+  if (
+    incoming.flow === 'pick' &&
+    isWorkingFlow(current.flow) &&
+    openSelectionCount(incoming, current.session?.log) === 0 &&
     snapshotSets(incoming) <= snapshotSets(current) &&
     snapshotRev(incoming) <= snapshotRev(current)
   ) {

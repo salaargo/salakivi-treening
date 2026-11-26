@@ -10,13 +10,19 @@ import {
   weightForSelectedMachine,
 } from '../storage'
 import { createMachine, exerciseRounds, getMachine, getPrimaryMachine } from '../exercises'
-import { suggestedWeight, phaseToneKey } from '../phases'
+import { suggestedWeight } from '../phases'
 import { RestTimer } from '../components/RestTimer'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { afterSetAction } from '../workoutFlow'
 import { publishSnapshot, pullRemoteSnapshot, subscribeCommands, subscribeSnapshot, snapshotIsAhead, getLatestLiveSnapshot, type LiveCommand } from '../live/remote'
 import type { LiveSession } from '../live/sessionEngine'
-import { completedSetCount, reopenIncompleteSession } from '../live/sessionEngine'
+import {
+  completedSetCount,
+  openSelectedIndexes,
+  reopenIncompleteSession,
+  sanitizeLiveSession,
+  sessionToSnapshot,
+} from '../live/sessionEngine'
 import { isWatchMode, lockPortrait, useScreenWakeLock } from '../orientation'
 import { clearRestSession, loadRestSession, saveRestSession } from '../restSession'
 import { useWorkoutKeepAlive } from '../keepAlive'
@@ -254,6 +260,7 @@ export function WorkoutScreen({
     onPickIndex: (_index: number) => {},
   })
   const pauseWorkoutRef = useRef<() => void>(() => {})
+  const pickHoldUntil = useRef(0)
 
   const commitLog = useCallback(
     (next: DayLog) => {
@@ -265,24 +272,25 @@ export function WorkoutScreen({
 
   const hydrateSession = useCallback(
     (s: LiveSession, epoch?: number) => {
-      const incoming = reopenIncompleteSession(s)
+      const incoming = sanitizeLiveSession(reopenIncompleteSession(s))
       const local = logRef.current
       const logToUse = local ? mergeDayLogs(local, incoming.log) : incoming.log
       sessionRevRef.current = Math.max(incoming.rev ?? 0, sessionRevRef.current)
       if (epoch != null && epoch > liveEpochRef.current) liveEpochRef.current = epoch
       commitLog(logToUse)
-      let nextFlow: Flow = incoming.flow === 'idle' ? 'pick' : incoming.flow
-      let nextRestEnds = incoming.restEndsAt ?? null
-      let nextSelected = incoming.selected
-      let nextSlot = incoming.activeSlot
-      if (
-        nextFlow === 'pick' &&
-        nextSelected.length === 0 &&
-        selectedRef.current.length > 0 &&
-        flowRef.current === 'pick'
-      ) {
-        nextSelected = selectedRef.current
-        nextSlot = activeSlotRef.current
+      const cleaned = sanitizeLiveSession({ ...incoming, log: logToUse })
+      let nextFlow: Flow = cleaned.flow === 'idle' ? 'pick' : cleaned.flow
+      let nextRestEnds = cleaned.restEndsAt ?? null
+      let nextSelected = cleaned.selected
+      let nextSlot = cleaned.activeSlot
+      const localOpen = openSelectedIndexes({
+        ...cleaned,
+        selected: selectedRef.current,
+        log: logToUse,
+      })
+      if (nextFlow === 'pick' && nextSelected.length === 0 && localOpen.length > 0 && flowRef.current === 'pick') {
+        nextSelected = localOpen
+        nextSlot = activeSlotRef.current < localOpen.length ? activeSlotRef.current : 0
       }
       if (nextFlow === 'sauna' && !allExercisesDone(logToUse, liveExercises)) {
         nextFlow = 'pick'
@@ -290,7 +298,7 @@ export function WorkoutScreen({
         nextSlot = 0
       }
       if (nextFlow === 'resting' && (!nextRestEnds || nextRestEnds <= Date.now())) {
-        nextFlow = incoming.pendingAfterRest === 'pick' ? 'pick' : 'ready'
+        nextFlow = cleaned.pendingAfterRest === 'pick' ? 'pick' : 'ready'
         nextRestEnds = null
         if (nextFlow === 'pick') {
           nextSelected = []
@@ -300,16 +308,16 @@ export function WorkoutScreen({
       setFlow(nextFlow)
       setSelected(nextSelected)
       setActiveSlot(nextSlot)
-      setRestSeconds(incoming.restSeconds)
-      setRestHint(incoming.restHint)
-      setRestNext(incoming.restNext)
+      setRestSeconds(cleaned.restSeconds)
+      setRestHint(cleaned.restHint)
+      setRestNext(cleaned.restNext)
       setRestEndsAt(nextRestEnds)
-      pendingAfterRest.current = incoming.pendingAfterRest
-      sessionStartedAt.current = incoming.sessionStartedAt
-      workMsAcc.current = incoming.workMs
-      restMsAcc.current = incoming.restMs
-      setStartedAt.current = incoming.setStartedAt
-      lastTehtudAt.current = incoming.lastTehtudAt
+      pendingAfterRest.current = cleaned.pendingAfterRest
+      sessionStartedAt.current = cleaned.sessionStartedAt
+      workMsAcc.current = cleaned.workMs
+      restMsAcc.current = cleaned.restMs
+      setStartedAt.current = cleaned.setStartedAt
+      lastTehtudAt.current = cleaned.lastTehtudAt
     },
     [commitLog, liveExercises],
   )
@@ -367,9 +375,14 @@ export function WorkoutScreen({
 
   useEffect(() => {
     if (!onRegisterStop) return
+    const started = Boolean(log?.startedAt) || completedSetCount(log) > 0
+    if (flow === 'sauna' || (flow === 'pick' && !started)) {
+      onRegisterStop(null)
+      return
+    }
     onRegisterStop(() => pauseWorkoutRef.current())
     return () => onRegisterStop(null)
-  }, [onRegisterStop])
+  }, [flow, log, onRegisterStop])
 
   useEffect(() => {
     const rebuilt = buildInitialLog(state, dateKey)
@@ -448,6 +461,15 @@ export function WorkoutScreen({
     if (isWatchMode()) return
     return subscribeSnapshot((snap) => {
       if (
+        Date.now() < pickHoldUntil.current &&
+        flowRef.current === 'pick' &&
+        snap.flow === 'pick' &&
+        (snap.session?.selected.length ?? 0) === 0 &&
+        selectedRef.current.length > 0
+      ) {
+        return
+      }
+      if (
         snapshotIsAhead(
           snap,
           sessionRevRef.current,
@@ -502,73 +524,37 @@ export function WorkoutScreen({
   useEffect(() => {
     if (isWatchMode()) return
     const publish = (_evenIfHidden = false) => {
-      const other =
-        selected.length === 2 ? liveExercises[selected[activeSlot === 0 ? 1 : 0]] : undefined
-      const session: LiveSession | undefined = log
-        ? {
-            v: 2,
-            dateKey,
-            flow,
-            selected,
-            activeSlot,
-            log,
-            restEndsAt: restEndsAt ?? undefined,
-            restSeconds,
-            restHint,
-            restNext,
-            pendingAfterRest: pendingAfterRest.current,
-            sessionStartedAt: sessionStartedAt.current,
-            workMs: workMsAcc.current,
-            restMs: restMsAcc.current,
-            setStartedAt: setStartedAt.current,
-            lastTehtudAt: lastTehtudAt.current,
-            planName: plan?.name ?? '',
-            rev: sessionRevRef.current,
-            exercises: liveExercises.map((e) => ({
-              id: e.id,
-              name: e.name,
-              restSeconds: e.restSeconds,
-            })),
-          }
-        : undefined
-      lastPublishAt.current = Date.now()
-      publishSnapshot({
-        v: 1,
-        at: Date.now(),
-        epoch: liveEpochRef.current,
+      if (!log) return
+      const session = sanitizeLiveSession({
+        v: 2,
         dateKey,
         flow,
-        planName: plan?.name,
-        exerciseName: currentEx?.name,
-        otherName: other?.name,
-        setNumber: currentEx ? setNumber : undefined,
-        totalRounds: currentEx ? totalRounds : undefined,
-        remainingHint: log ? remainingSetsHint(log, selectedExercises) : undefined,
-        remainingParts: log ? remainingSetParts(log, selectedExercises) : undefined,
-        nextHint: restNext || undefined,
-        restSeconds,
-        restEndsAt: restEndsAt ?? undefined,
-        remainingSets:
-          currentEx && log
-            ? findExerciseLog(log, currentEx.id)?.sets.filter((s) => !s.completed).length
-            : undefined,
-        weightKg: currentSet?.weightKg,
-        machineName: currentMachine?.name,
-        session,
+        selected,
         activeSlot,
-        pairChoices: selected.map((index, slot) => {
-          const ex = liveExercises[index]
-          const entry = ex && log ? findExerciseLog(log, ex.id) : undefined
-          const left = entry?.sets.filter((s) => !s.completed).length ?? 0
-          const nextSet = entry?.sets.find((s) => !s.completed)
-          return {
-            slot,
-            name: ex?.name ?? `Harjutus ${slot + 1}`,
-            left,
-            weightKg: nextSet?.weightKg,
-          }
-        }),
+        log,
+        restEndsAt: restEndsAt ?? undefined,
+        restSeconds,
+        restHint,
+        restNext,
+        pendingAfterRest: pendingAfterRest.current,
+        sessionStartedAt: sessionStartedAt.current,
+        workMs: workMsAcc.current,
+        restMs: restMsAcc.current,
+        setStartedAt: setStartedAt.current,
+        lastTehtudAt: lastTehtudAt.current,
+        planName: plan?.name ?? '',
+        rev: sessionRevRef.current,
+        exercises: liveExercises.map((e) => ({
+          id: e.id,
+          name: e.name,
+          restSeconds: e.restSeconds,
+        })),
       })
+      lastPublishAt.current = Date.now()
+      const published = sessionToSnapshot(session) as import('../live/remote').LiveSnapshot
+      published.epoch = liveEpochRef.current
+      published.machineName = currentMachine?.name
+      publishSnapshot(published)
     }
     publishNowRef.current = publish
     publish()
@@ -616,21 +602,15 @@ export function WorkoutScreen({
   }, [
     flow,
     dateKey,
-    plan?.name,
-    currentEx,
     selected,
     activeSlot,
-    setNumber,
-    totalRounds,
     log,
     restSeconds,
     restEndsAt,
     restNext,
-    currentSet?.weightKg,
     currentMachine?.name,
     restHint,
     liveExercises,
-    selectedExercises,
     hydrateSession,
   ])
 
@@ -739,6 +719,7 @@ export function WorkoutScreen({
   function toggleSelect(index: number) {
     const exercise = liveExercises[index]
     if (!exercise || isExerciseDone(dayLog, exercise.id)) return
+    pickHoldUntil.current = Date.now() + 12000
     bumpSessionRev()
     setSelected((prev) => {
       if (prev.includes(index)) return prev.filter((i) => i !== index)
@@ -747,21 +728,35 @@ export function WorkoutScreen({
     })
   }
 
+  function openSelectedFromLog(): number[] {
+    return selected.filter((index) => {
+      const exercise = liveExercises[index]
+      return Boolean(exercise && !isExerciseDone(dayLog, exercise.id))
+    })
+  }
+
   function beginSelected() {
-    if (selected.length === 0) return
+    let nextSelected = openSelectedFromLog()
+    if (nextSelected.length === 0) {
+      const next = remainingExercises[0]
+      if (!next) return
+      nextSelected = [next.index]
+    }
+    setSelected(nextSelected)
+    pickHoldUntil.current = Date.now() + 12000
     bumpSessionRev()
     setActiveSlot(0)
     setFlow('ready')
   }
 
   function beginAndStartFromWatch(): boolean {
-    let nextSelected = selected
+    let nextSelected = openSelectedFromLog()
     if (nextSelected.length === 0) {
       const next = remainingExercises[0]
       if (!next) return false
       nextSelected = [next.index]
-      setSelected(nextSelected)
     }
+    setSelected(nextSelected)
     bumpSessionRev()
     setActiveSlot(0)
     recordStart()
@@ -924,7 +919,20 @@ export function WorkoutScreen({
   }
 
   function handleTehtud() {
-    if (!currentEx || !currentSet) return
+    if (!currentEx || !currentSet) {
+      bumpSessionRev()
+      const stillOpen = openSelectedFromLog().filter((index) => index !== currentExIndex)
+      if (stillOpen.length > 0) {
+        setSelected(stillOpen)
+        setActiveSlot(0)
+        setFlow('ready')
+        return
+      }
+      setSelected([])
+      setActiveSlot(0)
+      setFlow(allExercisesDone(dayLog, liveExercises) ? 'sauna' : 'pick')
+      return
+    }
     bumpSessionRev()
 
     recordTehtud()
@@ -1065,6 +1073,15 @@ export function WorkoutScreen({
     clearLongPress()
     if (longPressFired.current) return
     if (flow !== 'ready' && flow !== 'resting') return
+    const open = openSelectedFromLog()
+    if (open.length === 0) {
+      beginAndStartFromWatch()
+      return
+    }
+    if (open.length !== selected.length || open.some((value, i) => value !== selected[i])) {
+      setSelected(open)
+      setActiveSlot(0)
+    }
     if (flow === 'resting') {
       clearRestSession()
       setRestEndsAt(null)
@@ -1109,9 +1126,14 @@ export function WorkoutScreen({
       if (flow !== 'pick' && flow !== 'ready') return
       bumpSessionRev()
       setSelected((prev) => {
-        if (prev.includes(index)) return prev
-        if (prev.length >= 2) return [prev[1], index]
-        return [...prev, index]
+        const open = prev.filter((i) => {
+          if (i === index) return false
+          const item = liveExercises[i]
+          return Boolean(item && !isExerciseDone(dayLog, item.id))
+        })
+        const kept = open.length >= 2 ? open.slice(-1) : open
+        if (kept.includes(index)) return kept
+        return [...kept, index]
       })
       setActiveSlot(0)
       setFlow('pick')
@@ -1210,13 +1232,10 @@ export function WorkoutScreen({
               {weekdayFull(weekday)} · {formatDayMonth(date)}
             </p>
           </div>
-            <span className="phase-pill" data-phase={phaseToneKey(phase.id)}>
-              {phase.name}
-            </span>
         </header>
 
         <p className="muted pad">
-          Vali harjutus (või kaks, et teha segamini). Segamini: paus ainult pärast teist harjutust.
+          Toksa Starti, et alustada. Kui tahad kaks harjutust segamini, vali need enne.
         </p>
 
         <ul className="pick-list">
@@ -1271,10 +1290,14 @@ export function WorkoutScreen({
           </button>
         )}
 
-        {selected.length > 0 && remainingExercises.length > 0 && (
+        {remainingExercises.length > 0 && (
           <div className="tehtud-dock">
             <button type="button" className="btn btn-tehtud-lg watch-start" onClick={beginSelected}>
-              Start
+              {selected.length === 0
+                ? `Start · ${remainingExercises[0].ex.name}`
+                : selected.length === 2
+                  ? 'Start · segamini'
+                  : `Start · ${liveExercises[selected[0]]?.name ?? remainingExercises[0].ex.name}`}
             </button>
           </div>
         )}

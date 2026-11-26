@@ -1,5 +1,5 @@
 import type { DayLog, ExerciseLog, SetLog } from './types'
-import { completedSetCount } from './live/sessionEngine'
+import { completedSetCount, sanitizeLiveSession } from './live/sessionEngine'
 import type { LiveSnapshot } from './live/remote'
 import type { RestSession } from './restSession'
 import { isExerciseLogDone } from './storage'
@@ -194,7 +194,7 @@ export function bootWorkout(opts: {
     snap.session.log
   ) {
     const merged = mergeDayLogs(log, snap.session.log)
-    const session = snap.session
+    const session = sanitizeLiveSession({ ...snap.session, log: merged })
     let flow: ResumeFlow = session.flow === 'idle' ? 'pick' : session.flow
     let restEndsAt = session.restEndsAt ?? null
     let setStartedAt = session.setStartedAt

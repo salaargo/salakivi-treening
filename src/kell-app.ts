@@ -1,7 +1,7 @@
 import {
   applySessionCommand,
   remainingCatalog,
-  reopenIncompleteSession,
+  sanitizeLiveSession,
   sessionToSnapshot,
   snapshotDateRank,
   snapshotShouldReplace,
@@ -499,7 +499,7 @@ function syncKeepAlive(): void {
 
 function normalizeIncoming(incoming: LiveSnapshot): LiveSnapshot {
   if (!incoming.session) return incoming
-  const session = reopenIncompleteSession(incoming.session)
+  const session = sanitizeLiveSession(incoming.session)
   if (session === incoming.session && incoming.flow === session.flow) return incoming
   const next = sessionToSnapshot(session) as LiveSnapshot
   next.epoch = incoming.epoch
@@ -1303,7 +1303,7 @@ async function flushOutbox(): Promise<void> {
     while (outbox.length) {
       const item = outbox[0]
       if (!item) break
-      if (snap && !snapshotShouldReplace(item.snap, snap)) {
+      if (outbox.length > 1 && snap && !snapshotShouldReplace(item.snap, snap)) {
         outbox.shift()
         saveOutbox()
         continue
@@ -1333,9 +1333,9 @@ function runCommand(
 ): void {
   if (!snap) return
   if (snap.session) {
-    const reopened = reopenIncompleteSession(snap.session)
-    if (reopened !== snap.session) {
-      const published = sessionToSnapshot(reopened) as LiveSnapshot
+    const cleaned = sanitizeLiveSession(snap.session)
+    if (cleaned !== snap.session || cleaned.flow !== snap.flow) {
+      const published = sessionToSnapshot(cleaned) as LiveSnapshot
       published.epoch = snap.epoch
       published.seq = snap.seq
       snap = published

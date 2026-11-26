@@ -5,7 +5,7 @@ import {
   allExercisesDone,
   applySessionCommand,
   completedSetCount,
-  reopenIncompleteSession,
+  sanitizeLiveSession,
   sessionToSnapshot,
   snapshotDateRank,
   snapshotShouldReplace,
@@ -84,7 +84,7 @@ export function snapshotIsAhead(
   localFlow?: LiveSnapshot['flow'],
 ): boolean {
   if (!incoming?.session || incoming.session.v !== 2) return false
-  const incomingSession = reopenIncompleteSession(incoming.session)
+  const incomingSession = sanitizeLiveSession(incoming.session)
   if (incoming.flow === 'idle' && incomingSession.flow === 'idle') return false
   if (
     incomingSession.flow === 'pick' &&
@@ -127,7 +127,7 @@ export function snapshotIsAhead(
 /** Vanem hetkeseis ei tohi kella Start/Tehtud peale tagasi keerata. */
 function applySnap(snap: LiveSnapshot): boolean {
   if (snap.session) {
-    const session = reopenIncompleteSession(snap.session)
+    const session = sanitizeLiveSession(snap.session)
     if (session !== snap.session || session.flow !== snap.flow) {
       const next = sessionToSnapshot(session) as LiveSnapshot
       next.epoch = snap.epoch

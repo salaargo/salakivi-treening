@@ -44,7 +44,8 @@ function loadPersistedScreen(): Screen {
     if (!raw) return { name: 'home' }
     const parsed = JSON.parse(raw) as Screen
     if (parsed?.name === 'workout' && typeof parsed.dateKey === 'string' && parsed.dateKey) {
-      return { name: 'workout', dateKey: parsed.dateKey }
+      if (parsed.dateKey === todayKey()) return { name: 'workout', dateKey: parsed.dateKey }
+      return { name: 'home' }
     }
     if (parsed?.name === 'week' || parsed?.name === 'train-choice') return parsed
     return { name: 'home' }
@@ -85,8 +86,10 @@ export default function App() {
     liveWorkoutLogRef.current = getter
   }, [])
   const workoutStopRef = useRef<(() => void) | null>(null)
+  const [stopVisible, setStopVisible] = useState(false)
   const registerWorkoutStop = useCallback((fn: (() => void) | null) => {
     workoutStopRef.current = fn
+    setStopVisible(Boolean(fn))
   }, [])
 
   const userId = session?.user.id ?? null
@@ -400,7 +403,9 @@ export default function App() {
         <p className="muted small">Treeningäpp on lukustatud püstivaatesse.</p>
       </div>
 
-      {screen.name === 'workout' && <StopWorkoutControl onConfirmStop={handleConfirmStopToday} />}
+      {screen.name === 'workout' && stopVisible && (
+        <StopWorkoutControl onConfirmStop={handleConfirmStopToday} />
+      )}
 
       {cloud && cloudStatus === 'error' && (
         <p className="cloud-banner error">Pilve salvestamine ebaõnnestus. Proovi uuesti.</p>

@@ -332,6 +332,8 @@ select:focus {
   border-radius: var(--radius);
   padding: 0.95rem 1rem;
   border: 1px solid transparent;
+  min-height: 4.1rem;
+  cursor: pointer;
 }
 
 .pick-row.is-selected {
