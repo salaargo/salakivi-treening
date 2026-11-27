@@ -31,7 +31,13 @@ import {
 } from './phases'
 import type { Phase } from './types'
 import { exerciseRounds, getMachine, getPrimaryMachine } from './exercises'
-import { hasCustomPlans, isGenericStarterNames, isGenericStarterPlan } from './seed/starterState'
+import {
+  hasCustomPlans,
+  isGenericStarterNames,
+  isGenericStarterPlan,
+  isUnnamedExerciseName,
+  isUnnamedPlan,
+} from './seed/starterState'
 
 const STORAGE_KEY = 'salakivi-treening-v9'
 const PROGRAM_BACKUP_KEY = 'salakivi-program-backup-v1'
@@ -559,6 +565,7 @@ export function collectExerciseNames(
   const remember = (id: string, name?: string) => {
     const trimmed = name?.trim()
     if (!id || !trimmed || names.has(id)) return
+    if (isUnnamedExerciseName(trimmed) || isGenericStarterNames([trimmed])) return
     names.set(id, trimmed)
   }
   for (const plan of state.plans) {
@@ -660,7 +667,7 @@ export function rebuildProgramFromHistory(
     const assignedId = weeks[0]?.days[day]
     const planIndex = assignedId ? plans.findIndex((plan) => plan.id === assignedId) : -1
     if (planIndex >= 0) {
-      if (isGenericStarterPlan(plans[planIndex])) {
+      if (isGenericStarterPlan(plans[planIndex]) || isUnnamedPlan(plans[planIndex])) {
         plans[planIndex] = { ...plans[planIndex], exercises: recovered }
         changed = true
       }
@@ -679,10 +686,107 @@ export function rebuildProgramFromHistory(
   return changed ? { ...state, plans, weeks } : state
 }
 
+function readAllSalakiviRecords(): unknown[] {
+  if (typeof localStorage === 'undefined') return []
+  const out: unknown[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key || !key.startsWith('salakivi')) continue
+    try {
+      const raw = localStorage.getItem(key)
+      if (raw) out.push(JSON.parse(raw))
+    } catch {
+      /* ignore */
+    }
+  }
+  return out
+}
+
+function namedPlansFromRecord(raw: unknown): WorkoutPlan[] {
+  if (!raw || typeof raw !== 'object') return []
+  const data = raw as Record<string, unknown>
+  const chunks: unknown[] = [data, data.__programBackup, data.state]
+  const plans: WorkoutPlan[] = []
+  for (const chunk of chunks) {
+    if (!chunk || typeof chunk !== 'object') continue
+    const record = chunk as Record<string, unknown>
+    const parsed = normalizeState({
+      ...record,
+      phases: Array.isArray(record.phases) ? record.phases : DEFAULT_PHASES,
+      logs: record.logs && typeof record.logs === 'object' ? record.logs : {},
+    })
+    if (!parsed) continue
+    for (const plan of parsed.plans) {
+      if (isGenericStarterPlan(plan) || isUnnamedPlan(plan) || !plan.exercises.length) continue
+      plans.push(plan)
+    }
+  }
+  const live = data.__live
+  if (live && typeof live === 'object') {
+    const snap = live as Record<string, unknown>
+    const session = snap.session && typeof snap.session === 'object' ? (snap.session as Record<string, unknown>) : null
+    const sessionExercises = Array.isArray(session?.exercises) ? session.exercises : []
+    const names = sessionExercises
+      .map((item) =>
+        item && typeof item === 'object' && typeof (item as { name?: string }).name === 'string'
+          ? (item as { name: string }).name.trim()
+          : '',
+      )
+      .filter(Boolean)
+    if (names.length && !isGenericStarterNames(names) && !names.every((name) => isUnnamedExerciseName(name))) {
+      const planName = typeof snap.planName === 'string' ? snap.planName : 'Kava'
+      plans.push({
+        id: newId('live'),
+        name: planName,
+        exercises: names.map((name, index) => {
+          const row = sessionExercises[index] as { id?: string; restSeconds?: number } | undefined
+          return {
+            id: typeof row?.id === 'string' ? row.id : `live-${index}`,
+            name,
+            rounds: 4,
+            restSeconds: typeof row?.restSeconds === 'number' ? row.restSeconds : DEFAULT_REST_SECONDS,
+            machines: [{ id: `m-live-${index}`, name: 'Pink 1', baseWeightKg: 20 }],
+          }
+        }),
+      })
+    }
+  }
+  return plans
+}
+
+function applyNamedPlansByOrder(state: AppState, namedPlans: WorkoutPlan[]): AppState {
+  if (!namedPlans.length) return state
+  let changed = false
+  const plans = state.plans.map((plan) => {
+    if (!isGenericStarterPlan(plan) && !isUnnamedPlan(plan)) return plan
+    const match =
+      namedPlans.find((item) => item.name === plan.name && item.exercises.length === plan.exercises.length) ??
+      namedPlans.find((item) => item.name === plan.name) ??
+      namedPlans.find((item) => item.exercises.length === plan.exercises.length)
+    if (!match) return plan
+    changed = true
+    return {
+      ...plan,
+      exercises: plan.exercises.map((ex, index) => {
+        const named = match.exercises[index]
+        if (!named || isUnnamedExerciseName(named.name) || isGenericStarterNames([named.name])) return ex
+        return {
+          ...ex,
+          name: named.name,
+          restSeconds: named.restSeconds || ex.restSeconds,
+          machines: named.machines.length ? named.machines : ex.machines,
+        }
+      }),
+    }
+  })
+  return changed ? { ...state, plans } : state
+}
+
 export function recoverOverwrittenProgram(
   state: AppState,
   extras?: { raw?: unknown; liveExercises?: { id: string; name: string }[] },
 ): AppState {
+  const storedNamed = [extras?.raw, ...readAllSalakiviRecords()].flatMap((raw) => namedPlansFromRecord(raw))
   const fromBackup = programBackupFromUnknown(extras?.raw) ?? loadLocalProgramBackup()
   let next = state
   if (!hasCustomPlans(next.plans) && fromBackup && hasCustomPlans(fromBackup.plans)) {
@@ -696,8 +800,14 @@ export function recoverOverwrittenProgram(
     }
   }
   const names = collectExerciseNames(next, extras?.liveExercises)
+  for (const plan of storedNamed) {
+    for (const ex of plan.exercises) {
+      if (!names.has(ex.id) && !isUnnamedExerciseName(ex.name)) names.set(ex.id, ex.name)
+    }
+  }
   next = stampLogNames(next, names)
   next = rebuildProgramFromHistory(next, names)
+  next = applyNamedPlansByOrder(next, storedNamed)
   if (hasCustomPlans(next.plans)) saveLocalProgramBackup(next)
   return next
 }
@@ -825,22 +935,24 @@ export function getExercisesForDate(state: AppState, dateKey: string): ExerciseT
   return exercisesFromDayLog(state, previous)
 }
 
+function programRank(plans: { name: string; exercises: { name: string }[] }[]): number {
+  if (hasCustomPlans(plans)) return 2
+  if (plans.some((plan) => plan.exercises.length > 0 && !isGenericStarterPlan(plan))) return 1
+  return 0
+}
+
 /** Ära lase näidiskaval kirjutada üle telefonis olevat isiklikku kava. */
 export function preferExistingProgram(cloud: AppState, local: AppState): AppState {
-  if (!hasCustomPlans(local.plans)) return cloud
-  if (hasCustomPlans(cloud.plans) && !cloud.plans.every((plan) => isGenericStarterPlan(plan))) {
-    return cloud
+  if (programRank(local.plans) > programRank(cloud.plans)) {
+    return {
+      ...cloud,
+      plans: local.plans,
+      weeks: local.weeks.length ? local.weeks : cloud.weeks,
+      useRotatingWeeks: local.useRotatingWeeks,
+      cycleStartDate: local.cycleStartDate || cloud.cycleStartDate,
+    }
   }
-  if (!cloud.plans.every((plan) => isGenericStarterPlan(plan)) && cloud.plans.length > 0) {
-    return cloud
-  }
-  return {
-    ...cloud,
-    plans: local.plans,
-    weeks: local.weeks.length ? local.weeks : cloud.weeks,
-    useRotatingWeeks: local.useRotatingWeeks,
-    cycleStartDate: local.cycleStartDate || cloud.cycleStartDate,
-  }
+  return cloud
 }
 
 export function getCalendarCycleWeekIndex(

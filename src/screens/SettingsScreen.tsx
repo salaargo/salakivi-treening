@@ -25,7 +25,7 @@ import {
   rebuildProgramFromHistory,
   WEEK_ORDER,
 } from '../storage'
-import { hasCustomPlans } from '../seed/starterState'
+import { hasCustomPlans, isUnnamedExerciseName, isUnnamedPlan } from '../seed/starterState'
 import { watchUrl } from '../orientation'
 import type { WatchKind } from '../watchKind'
 import { getSupabase } from '../lib/supabase'
@@ -660,11 +660,17 @@ export function SettingsScreen({
                     name={nameId}
                     type="text"
                     autoComplete="off"
-                    value={ex.name}
+                    placeholder={isUnnamedExerciseName(ex.name) ? 'Nt Kangi rida' : undefined}
+                    value={isUnnamedExerciseName(ex.name) ? '' : ex.name}
                     onChange={(e) =>
                       updateExercise(editing.id, exIndex, { name: e.target.value })
                     }
                   />
+                  {isUnnamedExerciseName(ex.name) && (
+                    <p className="muted small">
+                      Eelmine raskus {ex.machines[0]?.baseWeightKg ?? '—'} kg · kirjuta harjutuse päris nimi
+                    </p>
+                  )}
                 </div>
 
                 <div className="field">
@@ -992,7 +998,13 @@ export function SettingsScreen({
             >
               Taasta kava treeningajaloost
             </button>
-            {!hasCustomPlans(state.plans) && (
+            {state.plans.some((plan) => isUnnamedPlan(plan)) && (
+              <p className="muted small">
+                Logist tulid harjutused ilma nimedeta. Ava kava allpool ja kirjuta nimed — raskused on
+                eelmise trenni omad.
+              </p>
+            )}
+            {!hasCustomPlans(state.plans) && !state.plans.some((plan) => isUnnamedPlan(plan)) && (
               <p className="muted small">Praegu on ees näidiskava. Taastamine võtab viimase esmaspäeva, kolmapäeva ja reede logid.</p>
             )}
           </>

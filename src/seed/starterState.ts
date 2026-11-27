@@ -43,8 +43,18 @@ export function isGenericStarterPlan(plan: { name: string; exercises: { name: st
   return got.length === names.length && names.every((name, i) => name === got[i])
 }
 
+export function isUnnamedExerciseName(name: string): boolean {
+  return /^harjutus(\s*\d+)?$/i.test(name.trim())
+}
+
+export function isUnnamedPlan(plan: { exercises: { name: string }[] }): boolean {
+  return plan.exercises.length > 0 && plan.exercises.every((ex) => isUnnamedExerciseName(ex.name))
+}
+
 export function hasCustomPlans(plans: { name: string; exercises: { name: string }[] }[]): boolean {
-  return plans.some((plan) => plan.exercises.length > 0 && !isGenericStarterPlan(plan))
+  return plans.some(
+    (plan) => plan.exercises.length > 0 && !isGenericStarterPlan(plan) && !isUnnamedPlan(plan),
+  )
 }
 
 /**

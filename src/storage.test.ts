@@ -8,8 +8,9 @@ import {
   parseAppState,
   preferExistingProgram,
   rebuildProgramFromHistory,
+  recoverOverwrittenProgram,
 } from './storage'
-import { hasCustomPlans } from './seed/starterState'
+import { hasCustomPlans, isUnnamedPlan } from './seed/starterState'
 import type { AppState, DayLog, ExerciseTemplate, WorkoutPlan } from './types'
 
 function plan(id: string, name: string, exercises: ExerciseTemplate[]): WorkoutPlan {
@@ -280,5 +281,56 @@ describe('eelmise nädala kava, mitte näidise Tõmme', () => {
     expect(parsed.plans.some((item) => item.exercises.some((ex) => ex.name === 'Kangi rida'))).toBe(
       true,
     )
+  })
+
+  it('ei pea Harjutus 1–5 päris kavaks', () => {
+    const unnamed = plan('pull', 'Tõmme', [
+      ex('u1', 'Harjutus 1'),
+      ex('u2', 'Harjutus 2'),
+      ex('u3', 'Harjutus 3'),
+      ex('u4', 'Harjutus 4'),
+      ex('u5', 'Harjutus 5'),
+    ])
+    expect(isUnnamedPlan(unnamed)).toBe(true)
+    expect(hasCustomPlans([unnamed])).toBe(false)
+  })
+
+  it('paneb kella/varukoopia nimed järjekorras nimeta Tõmme harjutustele', () => {
+    const starter = createStarterState()
+    const unnamedPull = plan('pull', 'Tõmme', [
+      ex('u1', 'Harjutus 1'),
+      ex('u2', 'Harjutus 2'),
+      ex('u3', 'Harjutus 3'),
+      ex('u4', 'Harjutus 4'),
+      ex('u5', 'Harjutus 5'),
+    ])
+    const state: AppState = {
+      ...starter,
+      plans: starter.plans.map((item) => (item.name === 'Tõmme' ? unnamedPull : item)),
+    }
+    const recovered = recoverOverwrittenProgram(state, {
+      raw: {
+        __live: {
+          planName: 'Tõmme',
+          session: {
+            exercises: [
+              { id: 'a', name: 'Kangi rida', restSeconds: 90 },
+              { id: 'b', name: 'Face pull', restSeconds: 90 },
+              { id: 'c', name: 'Haamer-curl', restSeconds: 90 },
+              { id: 'd', name: 'Lat-tõmme kitsas', restSeconds: 90 },
+              { id: 'e', name: 'Seljatoe rida', restSeconds: 90 },
+            ],
+          },
+        },
+      },
+    })
+    const tomme = recovered.plans.find((item) => item.name === 'Tõmme')
+    expect(tomme?.exercises.map((item) => item.name)).toEqual([
+      'Kangi rida',
+      'Face pull',
+      'Haamer-curl',
+      'Lat-tõmme kitsas',
+      'Seljatoe rida',
+    ])
   })
 })

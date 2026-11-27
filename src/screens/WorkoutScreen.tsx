@@ -10,7 +10,7 @@ import {
   lastWeightForMachine,
   weightForSelectedMachine,
 } from '../storage'
-import { isGenericStarterPlan } from '../seed/starterState'
+import { isGenericStarterPlan, isUnnamedExerciseName, isUnnamedPlan } from '../seed/starterState'
 import { createMachine, exerciseRounds, getMachine, getPrimaryMachine } from '../exercises'
 import { suggestedWeight } from '../phases'
 import { RestTimer } from '../components/RestTimer'
@@ -1254,6 +1254,7 @@ export function WorkoutScreen({
 
   if (flow === 'pick') {
     const placeholder = isPlaceholderWorkout(state, dateKey)
+    const needsNames = isUnnamedPlan(plan)
     return (
       <div className="screen workout-screen">
         <header className="topbar">
@@ -1268,7 +1269,15 @@ export function WorkoutScreen({
           </div>
         </header>
 
-        {placeholder ? (
+        {needsNames ? (
+          <div className="wrong-plan-banner">
+            <p className="plan-name">Nimed kadusid, kava struktuur on alles</p>
+            <p className="muted small">
+              Eelmise kolmapäeva {liveExercises.length} harjutust on logis, aga nimed kirjutati üle.
+              Ava Seaded → {plan.name} ja kirjuta nimed. All on eelmise trenni raskused.
+            </p>
+          </div>
+        ) : placeholder ? (
           <div className="wrong-plan-banner">
             <p className="plan-name">Need ei ole sinu harjutused</p>
             <p className="muted small">
@@ -1292,25 +1301,35 @@ export function WorkoutScreen({
               const isOn = selected.includes(index)
               const finishedEarly = Boolean(logged?.finishedEarly) && !done
               const earlyDone = Boolean(logged?.finishedEarly)
+              const unnamed = isUnnamedExerciseName(ex.name)
+              const machine = getPrimaryMachine(ex)
+              const lastKg = lastWeightForMachine(state, ex, machine.id, dateKey)
+              const title = unnamed
+                ? lastKg != null
+                  ? `Eelmine ${lastKg} kg`
+                  : 'Nimeta harjutus'
+                : ex.name
               return (
                 <li key={ex.id}>
                   <button
                     type="button"
                     className={`pick-row ${isOn ? 'is-selected' : ''} ${done ? 'is-done' : ''} ${finishedEarly ? 'is-missed' : ''}`}
                     onClick={() => toggleSelect(index)}
-                    disabled={done}
+                    disabled={done || needsNames}
                   >
                     <span className={`pick-check ${finishedEarly ? 'is-missed' : ''}`}>
                       {done ? '✓' : finishedEarly ? '✕' : isOn ? '●' : '○'}
                     </span>
                     <div>
-                      <p className="plan-name">{ex.name}</p>
+                      <p className="plan-name">{title}</p>
                       <p className="muted small">
-                        {done
-                          ? earlyDone
-                            ? `Tehtud · ${doneSets}/${total} seeriat`
-                            : 'Tehtud'
-                          : `${doneSets}/${total} seeriat`}
+                        {unnamed
+                          ? 'Pane nimi Seadetes'
+                          : done
+                            ? earlyDone
+                              ? `Tehtud · ${doneSets}/${total} seeriat`
+                              : 'Tehtud'
+                            : `${doneSets}/${total} seeriat`}
                         {isOn && selected.length === 2
                           ? ` · segamini #${selected.indexOf(index) + 1}`
                           : ''}
@@ -1340,12 +1359,12 @@ export function WorkoutScreen({
           <button type="button" className="btn btn-secondary full btn-exit-workout" onClick={handleLeave}>
             Tagasi nädalasse
           </button>
-          {onGoSettings && (placeholder || isGenericStarterPlan(plan)) && (
+          {onGoSettings && (placeholder || needsNames || isGenericStarterPlan(plan)) && (
             <button type="button" className="btn btn-primary full" onClick={() => onGoSettings(plan.id)}>
               Ava seaded
             </button>
           )}
-          {remainingExercises.length > 0 && !placeholder && (
+          {remainingExercises.length > 0 && !placeholder && !needsNames && (
             <button type="button" className="btn btn-tehtud-lg watch-start" onClick={beginSelected}>
               {selected.length === 0
                 ? `Start · ${remainingExercises[0].ex.name}`
