@@ -1,6 +1,7 @@
 import type { AppState } from '../types'
 import { createStarterState } from '../seed/starterState'
-import { loadState, parseAppState, saveState } from '../storage'
+import { isGenericStarterPlan } from '../seed/starterState'
+import { loadState, parseAppState, preferExistingProgram, saveState } from '../storage'
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import { isAdminEmail } from '../admin'
 import {
@@ -212,7 +213,7 @@ export async function loadCloudState(userId: string): Promise<AppState> {
   void touchProfile(userId, email, metaName || undefined)
 
   if (data?.state) {
-    const parsed = parseAppState(data.state)
+    const parsed = preferExistingProgram(parseAppState(data.state), loadState())
     const local = loadState()
     const cloudLive = liveFromState(data.state)
     const localLive = getLatestLiveSnapshot()
@@ -244,21 +245,24 @@ async function ensureTemplateFromAdmin(state: AppState): Promise<void> {
   try {
     const existing = await loadProgramTemplate()
     if (existing) return
+    if (state.plans.length > 0 && state.plans.every((plan) => isGenericStarterPlan(plan))) return
     await publishProgramTemplate(state)
   } catch {
     /* Tabelit pole veel või puudub õigus — äpp jääb tööle. */
   }
 }
 
-/** Salvesta kasutaja andmed Supabase'i (upsert). Admin uuendab ka näidiskava. */
+/** Salvesta kasutaja andmed Supabase'i (upsert). */
 export async function saveCloudState(userId: string, state: AppState): Promise<void> {
-  saveState(state)
   const supabase = getSupabase()
   const { data: existingRow } = await supabase
     .from('user_app_state')
     .select('state')
     .eq('user_id', userId)
     .maybeSingle()
+  const previous = existingRow?.state ? parseAppState(existingRow.state) : null
+  const nextState = previous ? preferExistingProgram(state, previous) : state
+  saveState(nextState)
   const existing =
     existingRow?.state && typeof existingRow.state === 'object'
       ? (existingRow.state as Record<string, unknown>)
@@ -271,7 +275,7 @@ export async function saveCloudState(userId: string, state: AppState): Promise<v
       : (existingLive ?? localLive ?? undefined)
   const row: Pick<CloudRow, 'user_id' | 'state'> = {
     user_id: userId,
-    state: keepLive ? { ...state, __live: keepLive } : state,
+    state: keepLive ? { ...nextState, __live: keepLive } : nextState,
   }
   const { error } = await supabase.from('user_app_state').upsert(row, { onConflict: 'user_id' })
   if (error) throw error
@@ -281,11 +285,4 @@ export async function saveCloudState(userId: string, state: AppState): Promise<v
   const metaName = displayNameFromMetadata(auth.user?.user_metadata as Record<string, unknown> | undefined)
   await touchProfile(userId, email, metaName || undefined)
 
-  if (isAdminEmail(email)) {
-    try {
-      await publishProgramTemplate(state)
-    } catch {
-      /* Näidiskava tabelit pole veel või puudub õigus. */
-    }
-  }
 }

@@ -56,6 +56,8 @@ export interface SetLog {
 
 export interface ExerciseLog {
   exerciseId: string
+  /** Nimi logis, et kava vahetudes jääks ajalugu ja eelmine nädal taastatav. */
+  name?: string
   sets: SetLog[]
   /** Harjutus lõpetati enne kõigi seeriate täissaamist (nt 3/4). */
   finishedEarly?: boolean

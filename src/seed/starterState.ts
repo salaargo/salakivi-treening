@@ -21,6 +21,25 @@ function mondayKey(d = new Date()): string {
   return `${y}-${m}-${dayNum}`
 }
 
+/** Näidiskava harjutused — olemasolevat kasutajat nendega ei tohi üle kirjutada. */
+export const STARTER_PLAN_EXERCISES: Record<string, readonly string[]> = {
+  Tõuke: ['Kükk', 'Pingipress', 'Õlapress', 'Triceps pushdown'],
+  Tõmme: ['Maastõste', 'Rida (hantel)', 'Lat-tõmme', 'Biceps curl'],
+  'Jalad + core': ['Jalgade press', 'Rumeenia maastõste', 'Lunges', 'Plank (kg = aeg)'],
+}
+
+export function isGenericStarterPlan(plan: { name: string; exercises: { name: string }[] }): boolean {
+  const key = plan.name.replace(/\s+kava$/i, '')
+  const names = STARTER_PLAN_EXERCISES[key] ?? STARTER_PLAN_EXERCISES[plan.name]
+  if (!names) return false
+  const got = plan.exercises.map((ex) => ex.name)
+  return got.length === names.length && names.every((name, i) => name === got[i])
+}
+
+export function hasCustomPlans(plans: { name: string; exercises: { name: string }[] }[]): boolean {
+  return plans.some((plan) => plan.exercises.length > 0 && !isGenericStarterPlan(plan))
+}
+
 /**
  * Salakivi / Argo valmis algmall — otse treeningkavad (gruppe pole).
  * Esmaspäev = Tõuke, kolmapäev = Tõmme, reede = Jalad + core.

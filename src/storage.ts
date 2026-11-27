@@ -30,6 +30,7 @@ import {
 } from './phases'
 import type { Phase } from './types'
 import { exerciseRounds, getMachine, getPrimaryMachine } from './exercises'
+import { hasCustomPlans, isGenericStarterPlan } from './seed/starterState'
 
 const STORAGE_KEY = 'salakivi-treening-v9'
 const LEGACY_KEYS = [
@@ -294,6 +295,7 @@ function normalizeLogs(
           exerciseId: ex.exerciseId,
           sets,
         }
+        if (typeof ex.name === 'string' && ex.name.trim()) logged.name = ex.name.trim()
         if (ex.finishedEarly) logged.finishedEarly = true
         return logged
       })
@@ -365,15 +367,45 @@ function normalizeState(raw: unknown): AppState | null {
   const weeks = normalizeWeeks(data, plans, groupToPlan)
   const logs = normalizeLogs(data.logs, plans, groupToPlan)
 
-  const useRotatingWeeks =
-    typeof data.useRotatingWeeks === 'boolean' ? data.useRotatingWeeks : weeks.length > 1
+  const useRotatingWeeks = data.useRotatingWeeks === true
 
   return { phases, plans, weeks, logs, cycleStartDate, useRotatingWeeks }
 }
 
 export function parseAppState(raw: unknown): AppState {
   const normalized = normalizeState(raw)
-  return normalized ?? createDefaultState()
+  if (normalized) return normalized
+  return createDefaultState()
+}
+
+export function lastSameWeekdayLog(state: AppState, dateKey: string): DayLog | null {
+  const weekday = parseDateKey(dateKey).getDay()
+  const dates = Object.keys(state.logs)
+    .filter((key) => key < dateKey)
+    .sort()
+    .reverse()
+  for (const key of dates) {
+    if (parseDateKey(key).getDay() !== weekday) continue
+    const log = state.logs[key]
+    if (log?.exercises.length) return log
+  }
+  return null
+}
+
+function findExerciseTemplate(state: AppState, exerciseId: string): ExerciseTemplate | undefined {
+  for (const plan of state.plans) {
+    const found = plan.exercises.find((ex) => ex.id === exerciseId)
+    if (found) return found
+  }
+  return undefined
+}
+
+function preferCustomSameName(state: AppState, assigned: WorkoutPlan): WorkoutPlan {
+  if (!isGenericStarterPlan(assigned)) return assigned
+  const custom = state.plans.find(
+    (plan) => plan.id !== assigned.id && plan.name === assigned.name && !isGenericStarterPlan(plan),
+  )
+  return custom ?? assigned
 }
 
 export function loadState(): AppState {
@@ -420,12 +452,52 @@ export function getPlanForDate(state: AppState, dateKey: string): WorkoutPlan | 
   const template = getWeekTemplateForDate(state, dateKey)
   const weekday = parseDateKey(dateKey).getDay() as Weekday
   const planId = template.days[weekday] ?? null
-  if (!planId) return null
-  return getPlan(state, planId)
+  const assigned = planId ? getPlan(state, planId) : null
+  const chosen = assigned ? preferCustomSameName(state, assigned) : null
+  const previous = lastSameWeekdayLog(state, dateKey)
+  const previousPlan = previous ? getPlan(state, previous.planId) : null
+  if (previousPlan && !isGenericStarterPlan(previousPlan) && (!chosen || isGenericStarterPlan(chosen))) {
+    return previousPlan
+  }
+  return chosen
 }
 
 export function getExercisesForPlan(state: AppState, planId: string): ExerciseTemplate[] {
   return getPlan(state, planId)?.exercises ?? []
+}
+
+export function getExercisesForDate(state: AppState, dateKey: string): ExerciseTemplate[] {
+  const plan = getPlanForDate(state, dateKey)
+  const fromPlan = plan ? getExercisesForPlan(state, plan.id) : []
+  const previous = lastSameWeekdayLog(state, dateKey)
+  if (!previous) return fromPlan
+  const fromLog = previous.exercises
+    .map((entry) => findExerciseTemplate(state, entry.exerciseId))
+    .filter((ex): ex is ExerciseTemplate => Boolean(ex))
+  if (fromLog.length === previous.exercises.length && fromLog.length > 0) {
+    if (!plan || isGenericStarterPlan(plan) || fromLog.some((ex, i) => ex.id !== fromPlan[i]?.id)) {
+      return fromLog
+    }
+  }
+  return fromPlan
+}
+
+/** Ära lase näidiskaval kirjutada üle telefonis olevat isiklikku kava. */
+export function preferExistingProgram(cloud: AppState, local: AppState): AppState {
+  if (!hasCustomPlans(local.plans)) return cloud
+  if (hasCustomPlans(cloud.plans) && !cloud.plans.every((plan) => isGenericStarterPlan(plan))) {
+    return cloud
+  }
+  if (!cloud.plans.every((plan) => isGenericStarterPlan(plan)) && cloud.plans.length > 0) {
+    return cloud
+  }
+  return {
+    ...cloud,
+    plans: local.plans,
+    weeks: local.weeks.length ? local.weeks : cloud.weeks,
+    useRotatingWeeks: local.useRotatingWeeks,
+    cycleStartDate: local.cycleStartDate || cloud.cycleStartDate,
+  }
 }
 
 export function getCalendarCycleWeekIndex(
@@ -533,6 +605,7 @@ function buildExerciseLogSkeleton(
       : suggestedWeight(machine.baseWeightKg, phase.weightMultiplier)
   return {
     exerciseId: ex.id,
+    name: ex.name,
     sets: Array.from({ length: exerciseRounds(ex) }, () => ({
       machineId: machine.id,
       weightKg: weight,
@@ -618,7 +691,7 @@ export function buildHistoryRows(state: AppState): HistoryRow[] {
         rows.push({
           dateKey,
           planName: plan?.name ?? 'Kava',
-          exerciseName: ex?.name ?? 'Harjutus',
+          exerciseName: ex?.name ?? entry.name ?? 'Harjutus',
           machineName: machine?.name ?? 'Pink',
           setNumber: index + 1,
           weightKg: set.weightKg,

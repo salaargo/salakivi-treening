@@ -3,7 +3,7 @@ import type { AppState, DayLog, ExerciseLog, ExerciseTemplate, SetLog } from '..
 import { formatDayMonth, parseDateKey, weekdayFull } from '../dates'
 import {
   addMachineToExercise,
-  getExercisesForPlan,
+  getExercisesForDate,
   getPlanForDate,
   getPhaseProgress,
   lastWeightForMachine,
@@ -58,6 +58,7 @@ function buildExerciseLog(
   const machine = getPrimaryMachine(ex)
   return {
     exerciseId: ex.id,
+    name: ex.name,
     sets: Array.from({ length: exerciseRounds(ex) }, () => ({
       machineId: machine.id,
       weightKg: weightForSelectedMachine(state, ex, machine.id, dateKey, phase),
@@ -79,7 +80,7 @@ function findExerciseLog(log: DayLog, exerciseId: string): ExerciseLog | undefin
 function buildInitialLog(state: AppState, dateKey: string): DayLog | null {
   const plan = getPlanForDate(state, dateKey)
   if (!plan) return null
-  const exercises = getExercisesForPlan(state, plan.id)
+  const exercises = getExercisesForDate(state, dateKey)
   if (!exercises.length) return null
 
   const progress = getPhaseProgress(state, dateKey)
@@ -185,8 +186,8 @@ export function WorkoutScreen({
   const progress = plan ? getPhaseProgress(state, dateKey) : null
   const phase = progress?.phase ?? null
   const liveExercises = useMemo(
-    () => (plan ? getExercisesForPlan(state, plan.id) : []),
-    [state, plan],
+    () => getExercisesForDate(state, dateKey),
+    [state, dateKey],
   )
 
   const restoredRest = loadRestSession(dateKey)
@@ -194,7 +195,7 @@ export function WorkoutScreen({
     bootWorkout({
       dateKey,
       log: buildInitialLog(state, dateKey),
-      exercises: plan ? getExercisesForPlan(state, plan.id) : [],
+      exercises: getExercisesForDate(state, dateKey),
       snap: getLatestLiveSnapshot(),
       rest: restoredRest,
     }),
