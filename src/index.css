@@ -710,6 +710,32 @@ select:focus {
   background: var(--surface);
 }
 
+.btn-back {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 12px;
+  background: var(--surface);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.wrong-plan-banner {
+  margin: 0 0 0.25rem;
+  padding: 1rem 1.05rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 16%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.wrong-plan-banner .plan-name {
+  margin: 0 0 0.35rem;
+}
+
+.btn-exit-workout {
+  min-height: 3.1rem;
+  font-weight: 800;
+}
+
 .btn.full {
   width: 100%;
 }
@@ -850,6 +876,10 @@ select:focus {
 
 .is-phone-shell .topbar {
   padding-right: 5.4rem;
+}
+
+.is-phone-shell .workout-screen:not(.guided-workout) .topbar {
+  padding-right: 0;
 }
 
 .is-phone-shell .guided-workout .topbar {

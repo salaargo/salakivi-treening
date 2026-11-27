@@ -106,5 +106,5 @@ export type Screen =
   | { name: 'train-phase' }
   | { name: 'week' }
   | { name: 'workout'; dateKey: string }
-  | { name: 'settings' }
+  | { name: 'settings'; planId?: string }
   | { name: 'stats' }

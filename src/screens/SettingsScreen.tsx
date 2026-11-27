@@ -39,6 +39,7 @@ interface SettingsScreenProps {
   onStats?: () => void
   watchKind?: WatchKind | null
   onWatchKindChange?: (kind: WatchKind) => void
+  initialPlanId?: string
 }
 
 function newId(prefix: string): string {
@@ -58,8 +59,9 @@ export function SettingsScreen({
   onStats,
   watchKind = null,
   onWatchKindChange,
+  initialPlanId,
 }: SettingsScreenProps) {
-  const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(initialPlanId ?? null)
   const [editingWeekId, setEditingWeekId] = useState<string | null>(null)
   const [editingPhaseId, setEditingPhaseId] = useState<PhaseId | null>(null)
   const [nameDraft, setNameDraft] = useState(displayName)

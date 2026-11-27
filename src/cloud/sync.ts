@@ -1,7 +1,14 @@
 import type { AppState } from '../types'
 import { createStarterState } from '../seed/starterState'
 import { isGenericStarterPlan } from '../seed/starterState'
-import { loadState, parseAppState, preferExistingProgram, saveState } from '../storage'
+import {
+  discardUnstartedStarterLogs,
+  loadState,
+  parseAppState,
+  preferExistingProgram,
+  rehydratePlansFromLogs,
+  saveState,
+} from '../storage'
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
 import { isAdminEmail } from '../admin'
 import {
@@ -224,10 +231,12 @@ export async function loadCloudState(userId: string): Promise<AppState> {
         : (localLive ?? cloudLive)
     if (pulled && snapshotShouldReplace(pulled, bestLive)) bestLive = pulled
     hydrateLiveSnapshot(bestLive)
-    const merged: AppState = {
-      ...parsed,
-      logs: mergeAppLogs(parsed.logs, local.logs, bestLive?.session?.log ?? null),
-    }
+    const merged: AppState = rehydratePlansFromLogs(
+      discardUnstartedStarterLogs({
+        ...parsed,
+        logs: mergeAppLogs(parsed.logs, local.logs, bestLive?.session?.log ?? null),
+      }),
+    )
     saveState(merged)
     if (isAdminEmail(email)) {
       void ensureTemplateFromAdmin(merged)

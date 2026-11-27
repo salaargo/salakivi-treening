@@ -6,9 +6,11 @@ import {
   getExercisesForDate,
   getPlanForDate,
   getPhaseProgress,
+  isPlaceholderWorkout,
   lastWeightForMachine,
   weightForSelectedMachine,
 } from '../storage'
+import { isGenericStarterPlan } from '../seed/starterState'
 import { createMachine, exerciseRounds, getMachine, getPrimaryMachine } from '../exercises'
 import { suggestedWeight } from '../phases'
 import { RestTimer } from '../components/RestTimer'
@@ -26,12 +28,13 @@ import {
 import { isWatchMode, lockPortrait, useScreenWakeLock } from '../orientation'
 import { clearRestSession, loadRestSession, saveRestSession } from '../restSession'
 import { useWorkoutKeepAlive } from '../keepAlive'
-import { bootWorkout, mergeDayLogs } from '../workoutResume'
+import { bootWorkout, dayLogInProgress, mergeDayLogs } from '../workoutResume'
 
 interface WorkoutScreenProps {
   state: AppState
   dateKey: string
   onBack: () => void
+  onGoSettings?: (planId?: string) => void
   onFinish: () => void
   onUpdateLog: (log: DayLog) => void
   onChangeState: (next: AppState) => void
@@ -173,6 +176,7 @@ export function WorkoutScreen({
   state,
   dateKey,
   onBack,
+  onGoSettings,
   onFinish,
   onUpdateLog,
   onChangeState,
@@ -327,8 +331,28 @@ export function WorkoutScreen({
     sessionRevRef.current += 1
   }
 
+  const onBackRef = useRef(onBack)
+  onBackRef.current = onBack
+
   useEffect(() => {
-    if (boot.log) onUpdateLog(boot.log)
+    window.history.pushState({ salakiviWorkout: dateKey }, '')
+    const onPop = () => onBackRef.current()
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [dateKey])
+
+  function handleLeave() {
+    if (window.history.state && (window.history.state as { salakiviWorkout?: string }).salakiviWorkout === dateKey) {
+      window.history.back()
+      return
+    }
+    onBack()
+  }
+
+  useEffect(() => {
+    if (boot.log && (dayLogInProgress(boot.log) || boot.log.finishedAt)) {
+      onUpdateLog(boot.log)
+    }
     if (boot.flow === 'resting' && boot.restEndsAt) {
       saveRestSession({
         dateKey,
@@ -701,8 +725,8 @@ export function WorkoutScreen({
     return (
       <div className="screen">
         <header className="topbar">
-          <button type="button" className="btn btn-ghost btn-icon" onClick={onBack}>
-            ←
+          <button type="button" className="btn btn-ghost" onClick={handleLeave} aria-label="Tagasi nädalasse">
+            ← Nädal
           </button>
           <h2>Puhkepäev</h2>
         </header>
@@ -711,6 +735,14 @@ export function WorkoutScreen({
             ? 'Sellel päeval pole treeningkava.'
             : 'Kaval puuduvad harjutused — lisa need seadetes.'}
         </p>
+        <button type="button" className="btn btn-secondary full" onClick={handleLeave}>
+          Tagasi nädalasse
+        </button>
+        {onGoSettings && (
+          <button type="button" className="btn btn-primary full" onClick={() => onGoSettings(plan?.id)}>
+            Ava seaded
+          </button>
+        )}
       </div>
     )
   }
@@ -1149,8 +1181,8 @@ export function WorkoutScreen({
     return (
       <div className="screen sauna-screen">
         <header className="topbar">
-          <button type="button" className="btn btn-ghost btn-icon" onClick={onBack}>
-            ←
+          <button type="button" className="btn btn-ghost" onClick={handleLeave} aria-label="Tagasi nädalasse">
+            ← Nädal
           </button>
           <h2>{plan.name}</h2>
         </header>
@@ -1221,11 +1253,12 @@ export function WorkoutScreen({
   }
 
   if (flow === 'pick') {
+    const placeholder = isPlaceholderWorkout(state, dateKey)
     return (
       <div className="screen workout-screen">
         <header className="topbar">
-          <button type="button" className="btn btn-ghost btn-icon" onClick={onBack}>
-            ←
+          <button type="button" className="btn btn-ghost btn-back" onClick={handleLeave} aria-label="Tagasi nädalasse">
+            ← Nädal
           </button>
           <div className="topbar-title">
             <h2>{plan.name}</h2>
@@ -1235,50 +1268,62 @@ export function WorkoutScreen({
           </div>
         </header>
 
-        <p className="muted pad">
-          Toksa Starti, et alustada. Kui tahad kaks harjutust segamini, vali need enne.
-        </p>
+        {placeholder ? (
+          <div className="wrong-plan-banner">
+            <p className="plan-name">Need ei ole sinu harjutused</p>
+            <p className="muted small">
+              See on näidiskava (Maastõste, Lat-tõmme…). Eelmise nädala kava võetakse tagasi, kui see on
+              ajaloos olemas. Muidu pane harjutused Seadetes ise tagasi.
+            </p>
+          </div>
+        ) : (
+          <p className="muted pad">
+            Toksa Starti, et alustada. Kui tahad kaks harjutust segamini, vali need enne.
+          </p>
+        )}
 
-        <ul className="pick-list">
-          {liveExercises.map((ex, index) => {
-            const logged = findExerciseLog(dayLog, ex.id)
-            const done = isExerciseDone(dayLog, ex.id)
-            const doneSets = completedCount(dayLog, ex.id)
-            const total = logged?.sets.length ?? exerciseRounds(ex)
-            const isOn = selected.includes(index)
-            const finishedEarly = Boolean(logged?.finishedEarly) && !done
-            const earlyDone = Boolean(logged?.finishedEarly)
-            return (
-              <li key={ex.id}>
-                <button
-                  type="button"
-                  className={`pick-row ${isOn ? 'is-selected' : ''} ${done ? 'is-done' : ''} ${finishedEarly ? 'is-missed' : ''}`}
-                  onClick={() => toggleSelect(index)}
-                  disabled={done}
-                >
-                  <span className={`pick-check ${finishedEarly ? 'is-missed' : ''}`}>
-                    {done ? '✓' : finishedEarly ? '✕' : isOn ? '●' : '○'}
-                  </span>
-                  <div>
-                    <p className="plan-name">{ex.name}</p>
-                    <p className="muted small">
-                      {done
-                        ? earlyDone
-                          ? `Tehtud · ${doneSets}/${total} seeriat`
-                          : 'Tehtud'
-                        : `${doneSets}/${total} seeriat`}
-                      {isOn && selected.length === 2
-                        ? ` · segamini #${selected.indexOf(index) + 1}`
-                        : ''}
-                    </p>
-                  </div>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        {!placeholder && (
+          <ul className="pick-list">
+            {liveExercises.map((ex, index) => {
+              const logged = findExerciseLog(dayLog, ex.id)
+              const done = isExerciseDone(dayLog, ex.id)
+              const doneSets = completedCount(dayLog, ex.id)
+              const total = logged?.sets.length ?? exerciseRounds(ex)
+              const isOn = selected.includes(index)
+              const finishedEarly = Boolean(logged?.finishedEarly) && !done
+              const earlyDone = Boolean(logged?.finishedEarly)
+              return (
+                <li key={ex.id}>
+                  <button
+                    type="button"
+                    className={`pick-row ${isOn ? 'is-selected' : ''} ${done ? 'is-done' : ''} ${finishedEarly ? 'is-missed' : ''}`}
+                    onClick={() => toggleSelect(index)}
+                    disabled={done}
+                  >
+                    <span className={`pick-check ${finishedEarly ? 'is-missed' : ''}`}>
+                      {done ? '✓' : finishedEarly ? '✕' : isOn ? '●' : '○'}
+                    </span>
+                    <div>
+                      <p className="plan-name">{ex.name}</p>
+                      <p className="muted small">
+                        {done
+                          ? earlyDone
+                            ? `Tehtud · ${doneSets}/${total} seeriat`
+                            : 'Tehtud'
+                          : `${doneSets}/${total} seeriat`}
+                        {isOn && selected.length === 2
+                          ? ` · segamini #${selected.indexOf(index) + 1}`
+                          : ''}
+                      </p>
+                    </div>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
 
-        {remainingExercises.length === 0 && (
+        {remainingExercises.length === 0 && !placeholder && (
           <button
             type="button"
             className="btn btn-primary full"
@@ -1291,8 +1336,16 @@ export function WorkoutScreen({
           </button>
         )}
 
-        {remainingExercises.length > 0 && (
-          <div className="tehtud-dock">
+        <div className="tehtud-dock">
+          <button type="button" className="btn btn-secondary full btn-exit-workout" onClick={handleLeave}>
+            Tagasi nädalasse
+          </button>
+          {onGoSettings && (placeholder || isGenericStarterPlan(plan)) && (
+            <button type="button" className="btn btn-primary full" onClick={() => onGoSettings(plan.id)}>
+              Ava seaded
+            </button>
+          )}
+          {remainingExercises.length > 0 && !placeholder && (
             <button type="button" className="btn btn-tehtud-lg watch-start" onClick={beginSelected}>
               {selected.length === 0
                 ? `Start · ${remainingExercises[0].ex.name}`
@@ -1300,8 +1353,8 @@ export function WorkoutScreen({
                   ? 'Start · segamini'
                   : `Start · ${liveExercises[selected[0]]?.name ?? remainingExercises[0].ex.name}`}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     )
   }

@@ -30,7 +30,7 @@ import {
 } from './phases'
 import type { Phase } from './types'
 import { exerciseRounds, getMachine, getPrimaryMachine } from './exercises'
-import { hasCustomPlans, isGenericStarterPlan } from './seed/starterState'
+import { hasCustomPlans, isGenericStarterNames, isGenericStarterPlan } from './seed/starterState'
 
 const STORAGE_KEY = 'salakivi-treening-v9'
 const LEGACY_KEYS = [
@@ -257,7 +257,7 @@ function normalizeLogs(
     if (!isPhaseId(log.phaseId) || !Array.isArray(log.exercises)) continue
 
     let planId: string | null = null
-    if (typeof log.planId === 'string' && validPlanIds.has(log.planId)) {
+    if (typeof log.planId === 'string' && log.planId) {
       planId = log.planId
     } else if (typeof log.groupId === 'string') {
       if (validPlanIds.has(log.groupId)) planId = log.groupId
@@ -374,7 +374,7 @@ function normalizeState(raw: unknown): AppState | null {
 
 export function parseAppState(raw: unknown): AppState {
   const normalized = normalizeState(raw)
-  if (normalized) return normalized
+  if (normalized) return rehydratePlansFromLogs(discardUnstartedStarterLogs(normalized))
   return createDefaultState()
 }
 
@@ -387,9 +387,105 @@ export function lastSameWeekdayLog(state: AppState, dateKey: string): DayLog | n
   for (const key of dates) {
     if (parseDateKey(key).getDay() !== weekday) continue
     const log = state.logs[key]
-    if (log?.exercises.length) return log
+    if (!log?.exercises.length) continue
+    if (isGenericStarterLog(state, log)) continue
+    return log
   }
   return null
+}
+
+export function isGenericStarterLog(state: AppState, log: DayLog): boolean {
+  const names = log.exercises.map((entry) => {
+    if (entry.name?.trim()) return entry.name.trim()
+    return findExerciseTemplate(state, entry.exerciseId)?.name ?? ''
+  })
+  if (names.every(Boolean) && isGenericStarterNames(names)) return true
+  for (const plan of state.plans) {
+    if (!isGenericStarterPlan(plan)) continue
+    const ids = new Set(plan.exercises.map((ex) => ex.id))
+    if (log.exercises.length && log.exercises.every((entry) => ids.has(entry.exerciseId))) {
+      return true
+    }
+  }
+  return false
+}
+
+export function exercisesFromDayLog(state: AppState, log: DayLog): ExerciseTemplate[] {
+  const result: ExerciseTemplate[] = []
+  for (const entry of log.exercises) {
+    const found = findExerciseTemplate(state, entry.exerciseId)
+    if (found) {
+      result.push(found)
+      continue
+    }
+    const name = entry.name?.trim()
+    if (!name) return []
+    const first = entry.sets[0]
+    result.push({
+      id: entry.exerciseId,
+      name,
+      rounds: Math.max(1, entry.sets.length),
+      restSeconds: DEFAULT_REST_SECONDS,
+      machines: [
+        {
+          id: first?.machineId ?? `m-${entry.exerciseId}`,
+          name: 'Pink 1',
+          baseWeightKg: first?.weightKg ?? 20,
+        },
+      ],
+    })
+  }
+  return result
+}
+
+function logHasCompletedWork(log: DayLog): boolean {
+  return log.exercises.some((entry) => entry.sets.some((set) => set.completed) || entry.finishedEarly)
+}
+
+export function discardUnstartedStarterLogs(state: AppState): AppState {
+  let changed = false
+  const logs: AppState['logs'] = {}
+  for (const [dateKey, log] of Object.entries(state.logs)) {
+    const started = Boolean(log.startedAt) || logHasCompletedWork(log)
+    if (!started && isGenericStarterLog(state, log)) {
+      changed = true
+      continue
+    }
+    logs[dateKey] = log
+  }
+  return changed ? { ...state, logs } : state
+}
+
+export function rehydratePlansFromLogs(state: AppState): AppState {
+  let changed = false
+  const plans = state.plans.map((plan) => {
+    if (!isGenericStarterPlan(plan)) return plan
+    const assignedWeekdays = new Set<number>()
+    for (const week of state.weeks) {
+      for (const [day, id] of Object.entries(week.days)) {
+        if (id === plan.id) assignedWeekdays.add(Number(day))
+      }
+    }
+    const dates = Object.keys(state.logs).sort().reverse()
+    for (const dateKey of dates) {
+      if (assignedWeekdays.size && !assignedWeekdays.has(parseDateKey(dateKey).getDay())) continue
+      const log = state.logs[dateKey]
+      if (!log || isGenericStarterLog(state, log)) continue
+      const recovered = exercisesFromDayLog(state, log)
+      if (!recovered.length || isGenericStarterNames(recovered.map((ex) => ex.name))) continue
+      changed = true
+      return { ...plan, exercises: recovered }
+    }
+    return plan
+  })
+  return changed ? { ...state, plans } : state
+}
+
+export function isPlaceholderWorkout(state: AppState, dateKey: string): boolean {
+  const exercises = getExercisesForDate(state, dateKey)
+  if (!isGenericStarterNames(exercises.map((ex) => ex.name))) return false
+  const previous = lastSameWeekdayLog(state, dateKey)
+  return Boolean(previous && logHasCompletedWork(previous))
 }
 
 function findExerciseTemplate(state: AppState, exerciseId: string): ExerciseTemplate | undefined {
@@ -456,6 +552,20 @@ export function getPlanForDate(state: AppState, dateKey: string): WorkoutPlan | 
   const chosen = assigned ? preferCustomSameName(state, assigned) : null
   const previous = lastSameWeekdayLog(state, dateKey)
   const previousPlan = previous ? getPlan(state, previous.planId) : null
+  const recovered = previous ? exercisesFromDayLog(state, previous) : []
+  const recoveredCustom =
+    recovered.length > 0 && !isGenericStarterNames(recovered.map((ex) => ex.name))
+  if (recoveredCustom && (!chosen || isGenericStarterPlan(chosen))) {
+    if (previousPlan && !isGenericStarterPlan(previousPlan)) {
+      return { ...previousPlan, exercises: recovered }
+    }
+    if (chosen) return { ...chosen, exercises: recovered }
+    return {
+      id: previous?.planId ?? 'recovered',
+      name: 'Kava',
+      exercises: recovered,
+    }
+  }
   if (previousPlan && !isGenericStarterPlan(previousPlan) && (!chosen || isGenericStarterPlan(chosen))) {
     return previousPlan
   }
@@ -468,18 +578,10 @@ export function getExercisesForPlan(state: AppState, planId: string): ExerciseTe
 
 export function getExercisesForDate(state: AppState, dateKey: string): ExerciseTemplate[] {
   const plan = getPlanForDate(state, dateKey)
-  const fromPlan = plan ? getExercisesForPlan(state, plan.id) : []
+  if (plan?.exercises.length) return plan.exercises
   const previous = lastSameWeekdayLog(state, dateKey)
-  if (!previous) return fromPlan
-  const fromLog = previous.exercises
-    .map((entry) => findExerciseTemplate(state, entry.exerciseId))
-    .filter((ex): ex is ExerciseTemplate => Boolean(ex))
-  if (fromLog.length === previous.exercises.length && fromLog.length > 0) {
-    if (!plan || isGenericStarterPlan(plan) || fromLog.some((ex, i) => ex.id !== fromPlan[i]?.id)) {
-      return fromLog
-    }
-  }
-  return fromPlan
+  if (!previous) return []
+  return exercisesFromDayLog(state, previous)
 }
 
 /** Ära lase näidiskaval kirjutada üle telefonis olevat isiklikku kava. */

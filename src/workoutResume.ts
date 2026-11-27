@@ -61,6 +61,7 @@ function mergeExerciseLogs(a: ExerciseLog[], b: ExerciseLog[]): ExerciseLog[] {
     }
     byId.set(ex.exerciseId, {
       exerciseId: ex.exerciseId,
+      name: prev.name ?? ex.name,
       sets: mergeSets(prev.sets, ex.sets),
       finishedEarly: Boolean(prev.finishedEarly || ex.finishedEarly) || undefined,
     })

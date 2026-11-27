@@ -28,10 +28,17 @@ export const STARTER_PLAN_EXERCISES: Record<string, readonly string[]> = {
   'Jalad + core': ['Jalgade press', 'Rumeenia maastõste', 'Lunges', 'Plank (kg = aeg)'],
 }
 
+export function isGenericStarterNames(names: readonly string[]): boolean {
+  const got = names.map((name) => name.trim())
+  return Object.values(STARTER_PLAN_EXERCISES).some(
+    (starter) => starter.length === got.length && starter.every((name, i) => name === got[i]),
+  )
+}
+
 export function isGenericStarterPlan(plan: { name: string; exercises: { name: string }[] }): boolean {
   const key = plan.name.replace(/\s+kava$/i, '')
   const names = STARTER_PLAN_EXERCISES[key] ?? STARTER_PLAN_EXERCISES[plan.name]
-  if (!names) return false
+  if (!names) return isGenericStarterNames(plan.exercises.map((ex) => ex.name))
   const got = plan.exercises.map((ex) => ex.name)
   return got.length === names.length && names.every((name, i) => name === got[i])
 }

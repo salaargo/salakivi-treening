@@ -467,6 +467,7 @@ export default function App() {
           state={state}
           dateKey={screen.dateKey}
           onBack={() => setScreen({ name: 'week' })}
+          onGoSettings={(planId) => setScreen({ name: 'settings', planId })}
           onFinish={() => setScreen({ name: 'home' })}
           onUpdateLog={updateLog}
           onChangeState={setState}
@@ -480,6 +481,7 @@ export default function App() {
           state={state}
           onChange={setState}
           onBack={() => setScreen({ name: 'home' })}
+          initialPlanId={screen.planId}
           userEmail={cloud ? userEmail : undefined}
           userId={cloud ? userId ?? undefined : undefined}
           displayName={cloud ? displayName : undefined}

@@ -3,6 +3,7 @@ import { createStarterState, isGenericStarterPlan } from './seed/starterState'
 import {
   getExercisesForDate,
   getPlanForDate,
+  isPlaceholderWorkout,
   lastSameWeekdayLog,
   parseAppState,
   preferExistingProgram,
@@ -89,5 +90,104 @@ describe('eelmise nädala kava, mitte näidise Tõmme', () => {
     }
     const merged = preferExistingProgram(starter, local)
     expect(merged.plans[0]?.exercises.map((item) => item.name)).toEqual(['Kangi rida', 'Face pull'])
+  })
+
+  it('taastab eelmise kolmapäeva nimed, kui kava id-d on üle kirjutatud', () => {
+    const starter = createStarterState()
+    const state: AppState = {
+      ...starter,
+      logs: {
+        '2026-11-18': {
+          dateKey: '2026-11-18',
+          planId: 'old-pull',
+          phaseId: 'start',
+          startedAt: '2026-11-18T14:00:00.000Z',
+          exercises: [
+            {
+              exerciseId: 'old-1',
+              name: 'Kangi rida',
+              sets: [{ machineId: 'm1', weightKg: 40, reps: 8, completed: true }],
+            },
+            {
+              exerciseId: 'old-2',
+              name: 'Face pull',
+              sets: [{ machineId: 'm2', weightKg: 12, reps: 10, completed: true }],
+            },
+            {
+              exerciseId: 'old-3',
+              name: 'Haamer-curl',
+              sets: [{ machineId: 'm3', weightKg: 14, reps: 10, completed: true }],
+            },
+          ],
+        },
+      },
+    }
+    expect(getExercisesForDate(state, '2026-11-25').map((item) => item.name)).toEqual([
+      'Kangi rida',
+      'Face pull',
+      'Haamer-curl',
+    ])
+    expect(isPlaceholderWorkout(state, '2026-11-25')).toBe(false)
+  })
+
+  it('jätab alustamata näidise logi vahele ja ei lukusta näidiskavaga', () => {
+    const starter = createStarterState()
+    const tomme = starter.plans.find((item) => item.name === 'Tõmme')
+    const state: AppState = {
+      ...starter,
+      logs: {
+        '2026-11-18': {
+          dateKey: '2026-11-18',
+          planId: 'old-pull',
+          phaseId: 'start',
+          startedAt: '2026-11-18T14:00:00.000Z',
+          exercises: [
+            {
+              exerciseId: 'old-1',
+              name: 'Kangi rida',
+              sets: [{ machineId: 'm1', weightKg: 40, reps: 8, completed: true }],
+            },
+          ],
+        },
+        '2026-11-25': {
+          dateKey: '2026-11-25',
+          planId: tomme?.id ?? 'x',
+          phaseId: 'start',
+          exercises: (tomme?.exercises ?? []).map((item) => ({
+            exerciseId: item.id,
+            name: item.name,
+            sets: [{ machineId: item.machines[0]?.id ?? 'm', weightKg: 10, reps: 8, completed: false }],
+          })),
+        },
+      },
+    }
+    expect(lastSameWeekdayLog(state, '2026-11-25')?.dateKey).toBe('2026-11-18')
+    const parsed = parseAppState(state)
+    const tommeAfter = parsed.plans.find((item) => item.name === 'Tõmme')
+    expect(tommeAfter?.exercises.map((item) => item.name)).toEqual(['Kangi rida'])
+    expect(parsed.logs['2026-11-25']).toBeUndefined()
+  })
+
+  it('näitab näidise asemel hoiatust, kui ajaloo nimed puuduvad', () => {
+    const starter = createStarterState()
+    const state: AppState = {
+      ...starter,
+      logs: {
+        '2026-11-18': {
+          dateKey: '2026-11-18',
+          planId: 'old-pull',
+          phaseId: 'start',
+          startedAt: '2026-11-18T14:00:00.000Z',
+          exercises: [
+            {
+              exerciseId: 'old-1',
+              sets: [{ machineId: 'm1', weightKg: 40, reps: 8, completed: true }],
+            },
+          ],
+        },
+      },
+    }
+    expect(isPlaceholderWorkout(state, '2026-11-25')).toBe(true)
+    expect(getPlanForDate(state, '2026-11-25')?.name).toBe('Tõmme')
   })
 })
