@@ -17,6 +17,7 @@ import {
   parseDateKey,
   startOfWeekMonday,
   toDateKey,
+  weekdayFull,
 } from './dates'
 import {
   cycleWeeks,
@@ -33,6 +34,7 @@ import { exerciseRounds, getMachine, getPrimaryMachine } from './exercises'
 import { hasCustomPlans, isGenericStarterNames, isGenericStarterPlan } from './seed/starterState'
 
 const STORAGE_KEY = 'salakivi-treening-v9'
+const PROGRAM_BACKUP_KEY = 'salakivi-program-backup-v1'
 const LEGACY_KEYS = [
   'salakivi-treening-v8',
   'salakivi-treening-v7',
@@ -374,7 +376,11 @@ function normalizeState(raw: unknown): AppState | null {
 
 export function parseAppState(raw: unknown): AppState {
   const normalized = normalizeState(raw)
-  if (normalized) return rehydratePlansFromLogs(discardUnstartedStarterLogs(normalized))
+  if (normalized) {
+    return recoverOverwrittenProgram(discardUnstartedStarterLogs(normalized), { raw })
+  }
+  const recovered = recoverOverwrittenProgram(createDefaultState(), { raw })
+  if (hasCustomPlans(recovered.plans) || Object.keys(recovered.logs).length > 0) return recovered
   return createDefaultState()
 }
 
@@ -486,6 +492,241 @@ export function isPlaceholderWorkout(state: AppState, dateKey: string): boolean 
   if (!isGenericStarterNames(exercises.map((ex) => ex.name))) return false
   const previous = lastSameWeekdayLog(state, dateKey)
   return Boolean(previous && logHasCompletedWork(previous))
+}
+
+export interface ProgramBackup {
+  plans: WorkoutPlan[]
+  weeks: WeekTemplate[]
+  useRotatingWeeks: boolean
+  cycleStartDate: string
+  logs?: AppState['logs']
+  savedAt: string
+}
+
+export function programBackupFromState(state: AppState): ProgramBackup {
+  return {
+    plans: state.plans,
+    weeks: state.weeks,
+    useRotatingWeeks: state.useRotatingWeeks,
+    cycleStartDate: state.cycleStartDate,
+    logs: state.logs,
+    savedAt: new Date().toISOString(),
+  }
+}
+
+export function saveLocalProgramBackup(state: AppState): void {
+  if (!hasCustomPlans(state.plans)) return
+  try {
+    localStorage.setItem(PROGRAM_BACKUP_KEY, JSON.stringify(programBackupFromState(state)))
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadLocalProgramBackup(): ProgramBackup | null {
+  try {
+    const raw = localStorage.getItem(PROGRAM_BACKUP_KEY)
+    if (!raw) return null
+    return programBackupFromUnknown(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function programBackupFromUnknown(raw: unknown): ProgramBackup | null {
+  if (!raw || typeof raw !== 'object') return null
+  const data = raw as Record<string, unknown>
+  const source = data.__programBackup && typeof data.__programBackup === 'object' ? data.__programBackup : data
+  const parsed = normalizeState({
+    ...(source as Record<string, unknown>),
+    phases: Array.isArray((source as Record<string, unknown>).phases)
+      ? (source as Record<string, unknown>).phases
+      : DEFAULT_PHASES,
+    logs:
+      source && typeof source === 'object' && (source as Record<string, unknown>).logs
+        ? (source as Record<string, unknown>).logs
+        : {},
+  })
+  if (!parsed || !hasCustomPlans(parsed.plans)) return null
+  return programBackupFromState(parsed)
+}
+
+export function collectExerciseNames(
+  state: AppState,
+  liveExercises?: { id: string; name: string }[],
+): Map<string, string> {
+  const names = new Map<string, string>()
+  const remember = (id: string, name?: string) => {
+    const trimmed = name?.trim()
+    if (!id || !trimmed || names.has(id)) return
+    names.set(id, trimmed)
+  }
+  for (const plan of state.plans) {
+    if (isGenericStarterPlan(plan)) continue
+    for (const ex of plan.exercises) remember(ex.id, ex.name)
+  }
+  for (const log of Object.values(state.logs)) {
+    for (const entry of log.exercises) remember(entry.exerciseId, entry.name)
+  }
+  if (liveExercises) {
+    for (const ex of liveExercises) remember(ex.id, ex.name)
+  }
+  return names
+}
+
+function stampLogNames(state: AppState, names: Map<string, string>): AppState {
+  if (names.size === 0) return state
+  let changed = false
+  const logs: AppState['logs'] = {}
+  for (const [dateKey, log] of Object.entries(state.logs)) {
+    const exercises = log.exercises.map((entry) => {
+      if (entry.name?.trim()) return entry
+      const name = names.get(entry.exerciseId)
+      if (!name) return entry
+      changed = true
+      return { ...entry, name }
+    })
+    logs[dateKey] = { ...log, exercises }
+  }
+  return changed ? { ...state, logs } : state
+}
+
+function templatesFromLog(
+  state: AppState,
+  log: DayLog,
+  names: Map<string, string>,
+  allowFallbackName: boolean,
+): ExerciseTemplate[] {
+  const result: ExerciseTemplate[] = []
+  for (const [index, entry] of log.exercises.entries()) {
+    const found = findExerciseTemplate(state, entry.exerciseId)
+    const customFound = found && !isGenericStarterNames([found.name]) ? found : undefined
+    const name =
+      entry.name?.trim() ||
+      names.get(entry.exerciseId) ||
+      customFound?.name ||
+      (allowFallbackName ? `Harjutus ${index + 1}` : '')
+    if (!name) return []
+    const first = entry.sets[0]
+    const lastDone = [...entry.sets].reverse().find((set) => set.completed) ?? first
+    result.push({
+      id: entry.exerciseId,
+      name,
+      rounds: Math.max(1, entry.sets.length),
+      restSeconds: customFound?.restSeconds ?? DEFAULT_REST_SECONDS,
+      machines:
+        customFound?.machines.length
+          ? customFound.machines
+          : [
+              {
+                id: first?.machineId ?? `m-${entry.exerciseId}`,
+                name: 'Pink 1',
+                baseWeightKg: lastDone?.weightKg ?? 20,
+              },
+            ],
+    })
+  }
+  return result
+}
+
+export function hasCompletedHistory(state: AppState): boolean {
+  return Object.values(state.logs).some((log) => logHasCompletedWork(log))
+}
+
+/** Pane näidiskava asemele eelmiste treeningute harjutused (nimed, raskused, nädalapäevad). */
+export function rebuildProgramFromHistory(
+  state: AppState,
+  names?: Map<string, string>,
+): AppState {
+  const nameMap = names ?? collectExerciseNames(state)
+  const byWeekday = new Map<number, DayLog>()
+  for (const dateKey of Object.keys(state.logs).sort().reverse()) {
+    const log = state.logs[dateKey]
+    if (!log || isGenericStarterLog(state, log) || !logHasCompletedWork(log)) continue
+    const weekday = parseDateKey(dateKey).getDay()
+    if (byWeekday.has(weekday)) continue
+    byWeekday.set(weekday, log)
+  }
+  if (byWeekday.size === 0) return state
+
+  const plans = state.plans.map((plan) => ({ ...plan, exercises: plan.exercises.map((ex) => ({ ...ex })) }))
+  const weeks = state.weeks.map((week) => ({ ...week, days: { ...week.days } }))
+  let changed = false
+
+  for (const [weekday, log] of byWeekday) {
+    const recovered = templatesFromLog(state, log, nameMap, true)
+    if (!recovered.length || isGenericStarterNames(recovered.map((ex) => ex.name))) continue
+    const day = weekday as Weekday
+    const assignedId = weeks[0]?.days[day]
+    const planIndex = assignedId ? plans.findIndex((plan) => plan.id === assignedId) : -1
+    if (planIndex >= 0) {
+      if (isGenericStarterPlan(plans[planIndex])) {
+        plans[planIndex] = { ...plans[planIndex], exercises: recovered }
+        changed = true
+      }
+      continue
+    }
+    const newPlan: WorkoutPlan = {
+      id: log.planId || newId('plan'),
+      name: weekdayFull(weekday),
+      exercises: recovered,
+    }
+    plans.push(newPlan)
+    if (weeks[0]) weeks[0].days[day] = newPlan.id
+    changed = true
+  }
+
+  return changed ? { ...state, plans, weeks } : state
+}
+
+export function recoverOverwrittenProgram(
+  state: AppState,
+  extras?: { raw?: unknown; liveExercises?: { id: string; name: string }[] },
+): AppState {
+  const fromBackup = programBackupFromUnknown(extras?.raw) ?? loadLocalProgramBackup()
+  let next = state
+  if (!hasCustomPlans(next.plans) && fromBackup && hasCustomPlans(fromBackup.plans)) {
+    next = {
+      ...next,
+      plans: fromBackup.plans,
+      weeks: fromBackup.weeks.length ? fromBackup.weeks : next.weeks,
+      useRotatingWeeks: fromBackup.useRotatingWeeks,
+      cycleStartDate: fromBackup.cycleStartDate || next.cycleStartDate,
+      logs: Object.keys(next.logs).length ? next.logs : fromBackup.logs ?? next.logs,
+    }
+  }
+  const names = collectExerciseNames(next, extras?.liveExercises)
+  next = stampLogNames(next, names)
+  next = rebuildProgramFromHistory(next, names)
+  if (hasCustomPlans(next.plans)) saveLocalProgramBackup(next)
+  return next
+}
+
+export function cloudStatePayload(
+  state: AppState,
+  existing: Record<string, unknown>,
+  live?: unknown,
+): Record<string, unknown> {
+  const backup =
+    (hasCustomPlans(state.plans) ? programBackupFromState(state) : null) ??
+    programBackupFromUnknown(existing) ??
+    loadLocalProgramBackup()
+  if (backup && hasCustomPlans(backup.plans)) {
+    try {
+      localStorage.setItem(PROGRAM_BACKUP_KEY, JSON.stringify(backup))
+    } catch {
+      /* ignore */
+    }
+  }
+  const payload: Record<string, unknown> = {
+    ...existing,
+    ...state,
+  }
+  if (live) payload.__live = live
+  else if (existing.__live) payload.__live = existing.__live
+  if (backup && hasCustomPlans(backup.plans)) payload.__programBackup = backup
+  else if (existing.__programBackup) payload.__programBackup = existing.__programBackup
+  return payload
 }
 
 function findExerciseTemplate(state: AppState, exerciseId: string): ExerciseTemplate | undefined {

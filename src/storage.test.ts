@@ -7,7 +7,9 @@ import {
   lastSameWeekdayLog,
   parseAppState,
   preferExistingProgram,
+  rebuildProgramFromHistory,
 } from './storage'
+import { hasCustomPlans } from './seed/starterState'
 import type { AppState, DayLog, ExerciseTemplate, WorkoutPlan } from './types'
 
 function plan(id: string, name: string, exercises: ExerciseTemplate[]): WorkoutPlan {
@@ -189,5 +191,94 @@ describe('eelmise nädala kava, mitte näidise Tõmme', () => {
     }
     expect(isPlaceholderWorkout(state, '2026-11-25')).toBe(true)
     expect(getPlanForDate(state, '2026-11-25')?.name).toBe('Tõmme')
+  })
+
+  it('taastab kogu nädala kava treeningajaloost, kui näidis on üle kirjutanud', () => {
+    const starter = createStarterState()
+    const state: AppState = {
+      ...starter,
+      logs: {
+        '2026-11-16': {
+          dateKey: '2026-11-16',
+          planId: 'old-push',
+          phaseId: 'start',
+          startedAt: '2026-11-16T16:00:00.000Z',
+          exercises: [
+            {
+              exerciseId: 'p1',
+              name: 'Kaldpress',
+              sets: [{ machineId: 'm1', weightKg: 45, reps: 8, completed: true }],
+            },
+            {
+              exerciseId: 'p2',
+              name: 'Dipid',
+              sets: [{ machineId: 'm2', weightKg: 20, reps: 8, completed: true }],
+            },
+          ],
+        },
+        '2026-11-18': {
+          dateKey: '2026-11-18',
+          planId: 'old-pull',
+          phaseId: 'start',
+          startedAt: '2026-11-18T16:00:00.000Z',
+          exercises: [
+            {
+              exerciseId: 'r1',
+              name: 'Kangi rida',
+              sets: [{ machineId: 'm3', weightKg: 50, reps: 8, completed: true }],
+            },
+            {
+              exerciseId: 'r2',
+              name: 'Face pull',
+              sets: [{ machineId: 'm4', weightKg: 12, reps: 12, completed: true }],
+            },
+          ],
+        },
+        '2026-11-20': {
+          dateKey: '2026-11-20',
+          planId: 'old-legs',
+          phaseId: 'start',
+          startedAt: '2026-11-20T16:00:00.000Z',
+          exercises: [
+            {
+              exerciseId: 'l1',
+              name: 'Hack-kükk',
+              sets: [{ machineId: 'm5', weightKg: 80, reps: 8, completed: true }],
+            },
+          ],
+        },
+      },
+    }
+    const restored = rebuildProgramFromHistory(state)
+    expect(hasCustomPlans(restored.plans)).toBe(true)
+    expect(getExercisesForDate(restored, '2026-11-23').map((item) => item.name)).toEqual([
+      'Kaldpress',
+      'Dipid',
+    ])
+    expect(getExercisesForDate(restored, '2026-11-25').map((item) => item.name)).toEqual([
+      'Kangi rida',
+      'Face pull',
+    ])
+    expect(getExercisesForDate(restored, '2026-11-27').map((item) => item.name)).toEqual(['Hack-kükk'])
+  })
+
+  it('võtab kava tagasi varukoopiast, kui näidis kirjutas plaanid üle', () => {
+    const starter = createStarterState()
+    const raw = {
+      ...starter,
+      logs: {},
+      __programBackup: {
+        plans: [plan('mine', 'Tõmme', [ex('a', 'Kangi rida'), ex('b', 'Face pull')])],
+        weeks: starter.weeks,
+        useRotatingWeeks: false,
+        cycleStartDate: starter.cycleStartDate,
+        logs: {},
+        savedAt: '2026-11-18T10:00:00.000Z',
+      },
+    }
+    const parsed = parseAppState(raw)
+    expect(parsed.plans.some((item) => item.exercises.some((ex) => ex.name === 'Kangi rida'))).toBe(
+      true,
+    )
   })
 })

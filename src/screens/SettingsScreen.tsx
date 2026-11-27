@@ -18,7 +18,14 @@ import {
   phaseToneKey,
 } from '../phases'
 import { createMachine, withDefaultMachine } from '../exercises'
-import { getPhaseProgress, getPlan, WEEK_ORDER } from '../storage'
+import {
+  getPhaseProgress,
+  getPlan,
+  hasCompletedHistory,
+  rebuildProgramFromHistory,
+  WEEK_ORDER,
+} from '../storage'
+import { hasCustomPlans } from '../seed/starterState'
 import { watchUrl } from '../orientation'
 import type { WatchKind } from '../watchKind'
 import { getSupabase } from '../lib/supabase'
@@ -972,6 +979,24 @@ export function SettingsScreen({
           Sinu isiklikud treeningkavad. Saad ise kavasid ja nädalaid muuta. Nädalapäevale vali
           treeningkava (nt Tõuke = esmaspäev).
         </p>
+        {hasCompletedHistory(state) && (
+          <>
+            <p className="muted small">
+              Kui näidiskava kirjutas sinu harjutused üle, saab kava tagasi panna eelmiste treeningute
+              järgi — samad harjutused, raskused ja nädalapäevad.
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary full"
+              onClick={() => onChange(rebuildProgramFromHistory(state))}
+            >
+              Taasta kava treeningajaloost
+            </button>
+            {!hasCustomPlans(state.plans) && (
+              <p className="muted small">Praegu on ees näidiskava. Taastamine võtab viimase esmaspäeva, kolmapäeva ja reede logid.</p>
+            )}
+          </>
+        )}
       </section>
 
       <section className="settings-block">

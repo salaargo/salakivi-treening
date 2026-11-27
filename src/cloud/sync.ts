@@ -2,11 +2,12 @@ import type { AppState } from '../types'
 import { createStarterState } from '../seed/starterState'
 import { isGenericStarterPlan } from '../seed/starterState'
 import {
+  cloudStatePayload,
   discardUnstartedStarterLogs,
   loadState,
   parseAppState,
   preferExistingProgram,
-  rehydratePlansFromLogs,
+  recoverOverwrittenProgram,
   saveState,
 } from '../storage'
 import { getSupabase, isCloudEnabled } from '../lib/supabase'
@@ -231,11 +232,15 @@ export async function loadCloudState(userId: string): Promise<AppState> {
         : (localLive ?? cloudLive)
     if (pulled && snapshotShouldReplace(pulled, bestLive)) bestLive = pulled
     hydrateLiveSnapshot(bestLive)
-    const merged: AppState = rehydratePlansFromLogs(
+    const merged: AppState = recoverOverwrittenProgram(
       discardUnstartedStarterLogs({
         ...parsed,
         logs: mergeAppLogs(parsed.logs, local.logs, bestLive?.session?.log ?? null),
       }),
+      {
+        raw: data.state,
+        liveExercises: bestLive?.session?.exercises,
+      },
     )
     saveState(merged)
     if (isAdminEmail(email)) {
@@ -271,7 +276,6 @@ export async function saveCloudState(userId: string, state: AppState): Promise<v
     .maybeSingle()
   const previous = existingRow?.state ? parseAppState(existingRow.state) : null
   const nextState = previous ? preferExistingProgram(state, previous) : state
-  saveState(nextState)
   const existing =
     existingRow?.state && typeof existingRow.state === 'object'
       ? (existingRow.state as Record<string, unknown>)
@@ -282,9 +286,14 @@ export async function saveCloudState(userId: string, state: AppState): Promise<v
     localLive && snapshotShouldReplace(localLive, existingLive)
       ? localLive
       : (existingLive ?? localLive ?? undefined)
+  const recovered = recoverOverwrittenProgram(nextState, {
+    raw: existing,
+    liveExercises: keepLive?.session?.exercises,
+  })
+  saveState(recovered)
   const row: Pick<CloudRow, 'user_id' | 'state'> = {
     user_id: userId,
-    state: keepLive ? { ...nextState, __live: keepLive } : nextState,
+    state: cloudStatePayload(recovered, existing, keepLive),
   }
   const { error } = await supabase.from('user_app_state').upsert(row, { onConflict: 'user_id' })
   if (error) throw error
